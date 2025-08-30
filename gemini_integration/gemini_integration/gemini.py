@@ -56,36 +56,73 @@ def get_doc_context(doctype, docname):
         frappe.log_error(f"Error fetching doc context: {str(e)}")
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
+def get_dynamic_doctype_map():
+    """
+    Builds a map of naming series prefixes to DocTypes by querying the database
+    and caches the result for one hour.
+    e.g., {"PROJ": "Project", "SO": "Sales Order"}
+    """
+    cache_key = "gemini_doctype_prefix_map"
+    doctype_map = frappe.cache().get_value(cache_key)
+    if doctype_map:
+        return doctype_map
+
+    doctype_map = {}
+    # Find DocTypes that use a naming series format by parsing their 'autoname' property.
+    all_doctypes = frappe.get_all("DocType", fields=["name", "autoname"])
+
+    for doc in all_doctypes:
+        autoname = doc.get("autoname")
+        if not autoname or not isinstance(autoname, str):
+            continue
+
+        # Simple parsing: extract the prefix before the first separator.
+        # This covers formats like 'PREFIX-.#####', 'PREFIX./.YYYY./.MM.-.#####', etc.
+        match = re.match(r'^([A-Z_]+)[\-./]', autoname, re.IGNORECASE)
+        if match:
+            prefix = match.group(1).upper()
+            doctype_map[prefix] = doc.name
+
+    # Add common hardcoded fallbacks and merge them with the dynamic map.
+    # The dynamic map will overwrite these if prefixes are the same, which is desired.
+    hardcoded_map = {
+        "PROJ": "Project", "PRJ": "Project",
+        "SO": "Sales Order", "PO": "Purchase Order",
+        "QUO": "Quotation", "SI": "Sales Invoice", "PI": "Purchase Invoice",
+        "CUST": "Customer", "SUPP": "Supplier", "ITEM": "Item"
+    }
+    hardcoded_map.update(doctype_map)
+    doctype_map = hardcoded_map
+
+    frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600) # Cache for 1 hour
+    return doctype_map
+
 @frappe.whitelist()
 def generate_chat_response(prompt, model=None, conversation=None):
     """Handles chat interactions, including document references."""
     
-    # Regex to find @-references, e.g., @PROJ-001 or @"Some Customer Name"
     references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
-    
     full_context = ""
-    
     doc_names = [item for tpl in references for item in tpl if item]
+
+    # Get the dynamically generated and cached map of prefixes to DocTypes
+    doctype_map = get_dynamic_doctype_map()
 
     for docname in doc_names:
         found_doctype = None
         
-        # 1. Try prefix-based matching (fast and reliable for series)
+        # 1. Try prefix-based matching using our dynamic map
         try:
-            prefix = docname.split('-')[0].upper() # Use .upper() for case-insensitivity
-            doctype_map = {
-                "PROJ": "Project", "PRJ": "Project", # Added 'PRJ'
-                "SO": "Sales Order", "PO": "Purchase Order",
-                "QUO": "Quotation", "SI": "Sales Invoice", "PI": "Purchase Invoice",
-                "CUST": "Customer", "SUPP": "Supplier", "ITEM": "Item"
-            }
-            mapped_doctype = doctype_map.get(prefix)
-            if mapped_doctype and frappe.db.exists(mapped_doctype, docname):
-                found_doctype = mapped_doctype
+            # Check for a hyphen, which is typical for series-based names
+            if '-' in docname:
+                prefix = docname.split('-')[0].upper()
+                mapped_doctype = doctype_map.get(prefix)
+                if mapped_doctype and frappe.db.exists(mapped_doctype, docname):
+                    found_doctype = mapped_doctype
         except Exception:
             pass # Ignore errors if splitting fails, etc.
 
-        # 2. If no prefix match, check a list of common doctypes by name
+        # 2. If no prefix match, check a list of common doctypes by full name
         if not found_doctype:
             common_doctypes_to_check = ["Customer", "Supplier", "Item", "Project", "Lead", "Opportunity"]
             for dt in common_doctypes_to_check:
@@ -104,4 +141,3 @@ def generate_chat_response(prompt, model=None, conversation=None):
     final_prompt = f"{full_context}User query: {prompt}"
     
     return generate_text(final_prompt, model)
-
