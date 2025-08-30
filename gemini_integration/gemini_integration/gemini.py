@@ -65,8 +65,6 @@ def generate_chat_response(prompt, model=None, conversation=None):
     
     full_context = ""
     
-    # The regex returns a list of tuples, e.g., [('PROJ-00183', ''), ('', 'Some Customer')]
-    # We need to flatten and filter it.
     doc_names = [item for tpl in references for item in tpl if item]
 
     for docname in doc_names:
@@ -74,9 +72,10 @@ def generate_chat_response(prompt, model=None, conversation=None):
         
         # 1. Try prefix-based matching (fast and reliable for series)
         try:
-            prefix = docname.split('-')[0]
+            prefix = docname.split('-')[0].upper() # Use .upper() for case-insensitivity
             doctype_map = {
-                "PRJ": "Project", "SO": "Sales Order", "PO": "Purchase Order",
+                "PROJ": "Project", "PRJ": "Project", # Added 'PRJ'
+                "SO": "Sales Order", "PO": "Purchase Order",
                 "QUO": "Quotation", "SI": "Sales Invoice", "PI": "Purchase Invoice",
                 "CUST": "Customer", "SUPP": "Supplier", "ITEM": "Item"
             }
