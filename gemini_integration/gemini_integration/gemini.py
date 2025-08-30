@@ -7,15 +7,15 @@ def configure_gemini():
     """Configures the Google Generative AI client with the API key from settings."""
     api_key = frappe.get_single_value('Gemini Settings', 'api_key')
 
-    # --- DEBUGGING STEP ---
-    # Log the first 8 and last 4 characters of the key being used to the error log.
+    # --- CRITICAL DEBUGGING STEP ---
+    # Log the key being used to the error log to verify it's the correct one.
     if api_key:
         frappe.log_error(
-            f"Using Gemini API Key starting with '{api_key[:8]}' and ending with '{api_key[-4:]}'",
-            "Gemini Integration Debug"
+            f"Attempting to use Gemini API Key starting with '{api_key[:8]}' and ending with '{api_key[-4:]}'",
+            "Gemini API Key Check"
         )
     else:
-        frappe.log_error("No Gemini API Key found in settings.", "Gemini Integration Debug")
+        frappe.log_error("No Gemini API Key found in settings.", "Gemini API Key Check")
     # --- END DEBUGGING STEP ---
 
     if not api_key:
@@ -37,8 +37,10 @@ def generate_text(prompt, model=None):
         response = model_instance.generate_content(prompt)
         return response.text
     except Exception as e:
+        # Log the full error for debugging
         frappe.log_error(f"Gemini API Error: {str(e)}", "Gemini Integration Error")
-        frappe.throw("An error occurred while communicating with the Gemini API.")
+        # Throw a generic error to the user
+        frappe.throw("An error occurred while communicating with the Gemini API. Please check the Error Log for details.")
 
 def get_doc_context(doctype, docname):
     """Fetches and formats a document's data for context."""
@@ -97,5 +99,4 @@ def generate_chat_response(prompt, model=None, conversation=None):
     # For now, we'll just use the simple text generation.
     # A real chat implementation would handle conversation history.
     return generate_text(final_prompt, model)
-
 
