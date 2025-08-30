@@ -3,7 +3,7 @@ name = "gemini_integration"
 authors = [
     { name = "Sapphire Fountains", email = "info@sapphirefountains.com"}
 ]
-description = "Google Gemini integration with ERPNext 15."
+description = "Google Gemini integration with Frappe ERPNext 15."
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]

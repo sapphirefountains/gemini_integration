@@ -1,6 +1,6 @@
 ### Gemini Integration
 
-Google Gemini integration with ERPNext 15.
+Google Gemini integration with Frappe ERPNext 15.
 
 ### Installation
 

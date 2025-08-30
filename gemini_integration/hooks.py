@@ -1,7 +1,7 @@
 app_name = "gemini_integration"
 app_title = "Gemini Integration"
 app_publisher = "Sapphire Fountains"
-app_description = "Google Gemini integration with ERPNext 15."
+app_description = "Google Gemini integration with Frappe ERPNext 15."
 app_email = "info@sapphirefountains.com"
 app_license = "mit"
 
