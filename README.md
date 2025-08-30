@@ -1,6 +1,6 @@
 ### Gemini Integration
 
-Integrating Google Gemini into ERPNext version 15.
+Google Gemini integration with ERPNext 15.
 
 ### Installation
 
