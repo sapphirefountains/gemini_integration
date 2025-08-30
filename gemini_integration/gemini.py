@@ -76,7 +76,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
         try:
             prefix = docname.split('-')[0]
             doctype_map = {
-                "PROJ": "Project", "SO": "Sales Order", "PO": "Purchase Order",
+                "PRJ": "Project", "SO": "Sales Order", "PO": "Purchase Order",
                 "QUO": "Quotation", "SI": "Sales Invoice", "PI": "Purchase Invoice",
                 "CUST": "Customer", "SUPP": "Supplier", "ITEM": "Item"
             }
