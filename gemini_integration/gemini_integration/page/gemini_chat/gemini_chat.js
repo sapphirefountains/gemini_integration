@@ -62,7 +62,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             label: "Model",
             fieldtype: "Select",
             options: "gemini-2.5-flash\ngemini-2.5-pro",
-            default: "gemini-2.5-flash"
+            default: "gemini-2.5-flash",
+            // CORRECT WAY TO HANDLE CHANGE EVENT
+            change: function() {
+                // 'this' refers to the control object itself
+                frappe.boot.user.last_gemini_model = this.get_value();
+            }
         },
         render_input: true,
     });
@@ -78,15 +83,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 
         if (sender === 'bot') {
             if (page.converter) {
-                // If markdown converter is loaded, convert text to HTML
                 let html = page.converter.makeHtml(text);
                 bubble.html(html);
             } else {
-                // Fallback to plain text if showdown hasn't loaded
                 bubble.text(text).css('white-space', 'pre-wrap');
             }
         } else {
-            // User message is always plain text
             bubble.text(text);
         }
 		
@@ -113,7 +115,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 			},
 			callback: function(r) {
                 let bubble = thinking_el.find('.message-bubble');
-                // Update the "thinking" message with the real response
                 if (page.converter) {
                     let html = page.converter.makeHtml(r.message);
                     bubble.html(html);
@@ -139,8 +140,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 		}
 	});
 
-    page.model_selector.on('change', () => {
-        frappe.boot.user.last_gemini_model = page.model_selector.get_value();
-    });
+    // The incorrect .on() handler has been removed from here
 }
 
