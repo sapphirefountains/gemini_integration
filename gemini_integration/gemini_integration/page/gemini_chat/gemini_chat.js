@@ -50,7 +50,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     let conversation = [];
     let current_file_url = null;
 
-    // --- THIS FIXES THE MODEL SELECTOR ---
     page.model_selector = frappe.ui.form.make_control({
         parent: $(page.body).find('.model-selector-area'),
         df: {
@@ -60,20 +59,28 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 { label: "Gemini 1.5 Flash", value: "gemini-1.5-flash" },
                 { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
             ],
-            // The 'change' event must be defined here
             change: function() {
-                let selected_model = this.get_value();
-                frappe.storage.set('gemini_last_model', selected_model);
+                // --- FIX: Add a guard clause ---
+                if (frappe.storage) {
+                    let selected_model = this.get_value();
+                    frappe.storage.set('gemini_last_model', selected_model);
+                }
             }
         },
         render_input: true,
     });
-    // Set initial value from localStorage
-    let last_model = frappe.storage.get('gemini_last_model');
-    if (last_model) {
-        page.model_selector.set_value(last_model);
+    
+    // --- FIX: Add a guard clause before getting the value ---
+    if (frappe.storage) {
+        let last_model = frappe.storage.get('gemini_last_model');
+        if (last_model) {
+            page.model_selector.set_value(last_model);
+        } else {
+            page.model_selector.set_value('gemini-1.5-flash'); // Set a default
+        }
+    } else {
+        page.model_selector.set_value('gemini-1.5-flash'); // Set a default
     }
-    // --- END OF FIX ---
     
     // Check Google Integration Status
     frappe.call({
@@ -127,11 +134,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 file_url: current_file_url
             },
             callback: function(r) {
-                // --- THIS FIXES THE "NO RESPONSE" BUG ---
-                // The function frappe.hide_alert() does not exist in this version.
-                // We simply clear all alerts, which is safer.
                 frappe.clear_alerts();
-                // --- END OF FIX ---
                 let response_text = r.message;
                 add_to_history('gemini', response_text);
             },
@@ -152,7 +155,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         let bubble = $(`<div class="chat-bubble ${role}"></div>`);
         
         if (text) {
-            // Use showdown to render markdown
             let converter = new showdown.Converter();
             let html = converter.makeHtml(text);
             bubble.html(html);
@@ -180,5 +182,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         }
     });
 }
+
+Instructions to Apply the Fix
+ * Replace the file: Go to ~/frappe-bench/apps/gemini_integration/gemini_integration/page/gemini_chat/gemini_chat.js and replace its entire content with the code from the block above.
+ * Build Assets: From your frappe-bench terminal, run the build command. This is a critical step.
+   bench build
+
+
 
 
