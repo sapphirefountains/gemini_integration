@@ -50,8 +50,8 @@ def get_doc_context(doctype, docname):
     try:
         doc = frappe.get_doc(doctype, docname)
         doc_dict = doc.as_dict()
+        # Use json.dumps for a clean, readable format of the document's data
         context = f"Context for {doctype} '{docname}':\n"
-        # Use json.dumps for a clean, readable format
         context += json.dumps(doc_dict, indent=2, default=str)
         
         doc_url = get_url_to_form(doctype, docname)
@@ -65,8 +65,8 @@ def get_doc_context(doctype, docname):
 
 def get_dynamic_doctype_map():
     """
-    Builds a map of naming series prefixes to DocTypes by checking the Naming Series
-    DocType and caches the result for one hour.
+    Builds a map of naming series prefixes to DocTypes using the reliable logic
+    from the previously working version.
     """
     cache_key = "gemini_doctype_prefix_map"
     doctype_map = frappe.cache().get_value(cache_key)
@@ -74,16 +74,30 @@ def get_dynamic_doctype_map():
         return doctype_map
 
     doctype_map = {}
-    # Fetch all doctypes that have a naming series field
-    dt_with_series = frappe.get_all("DocType", filters={"naming_rule": "By Naming Series"}, fields=["name"])
-    
-    for d in dt_with_series:
-        meta = frappe.get_meta(d.name)
-        naming_series_field = meta.get_field("naming_series")
-        if naming_series_field and naming_series_field.options:
-            prefixes = [s.strip().split('.')[0] for s in naming_series_field.options.split('\n') if s.strip()]
-            for prefix in prefixes:
-                doctype_map[prefix.upper().rstrip('-')] = d.name
+    all_doctypes = frappe.get_all("DocType", fields=["name", "autoname"])
+
+    for doc in all_doctypes:
+        autoname = doc.get("autoname")
+        if not autoname or not isinstance(autoname, str):
+            continue
+        
+        # Parse formats like 'PREFIX-.#####'
+        match = re.match(r'^([A-Z_]+)[\-./]', autoname, re.IGNORECASE)
+        if match:
+            prefix = match.group(1).upper()
+            doctype_map[prefix] = doc.name
+
+    # --- THIS IS THE CRITICAL FIX ---
+    # Merge the dynamic map with a hardcoded list of common prefixes to ensure
+    # core DocTypes like 'Project' are always found, even if their naming rule changes.
+    hardcoded_map = {
+        "PRJ": "Project", "PROJ": "Project", "TASK": "Task",
+        "SO": "Sales Order", "PO": "Purchase Order", "QUO": "Quotation",
+        "SI": "Sales Invoice", "PI": "Purchase Invoice", "CUST": "Customer",
+        "SUPP": "Supplier", "ITEM": "Item", "LEAD": "Lead", "OPP": "Opportunity"
+    }
+    hardcoded_map.update(doctype_map)
+    doctype_map = hardcoded_map
 
     frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600) # Cache for 1 hour
     return doctype_map
@@ -268,7 +282,6 @@ def search_calendar(credentials, query):
 def generate_chat_response(prompt, model=None, conversation=None):
     """Handles chat interactions, including document references."""
     
-    # Extract all @-references from the prompt
     doc_names = re.findall(r'@([\w.-]+)', prompt)
     full_context = ""
     
@@ -278,20 +291,25 @@ def generate_chat_response(prompt, model=None, conversation=None):
             doc_name = doc_name.strip()
             found_doctype = None
             
-            # Use the reliable prefix matching from the old, working version
             if '-' in doc_name:
                 prefix = doc_name.split('-')[0].upper()
-                if prefix in doctype_map:
-                    doctype = doctype_map[prefix]
-                    if frappe.db.exists(doctype, doc_name):
-                        found_doctype = doctype
+                mapped_doctype = doctype_map.get(prefix)
+                if mapped_doctype and frappe.db.exists(mapped_doctype, doc_name):
+                    found_doctype = mapped_doctype
+            
+            # If prefix matching fails, try some common doctypes by full name
+            if not found_doctype:
+                common_doctypes_to_check = ["Customer", "Supplier", "Item", "Project", "Lead", "Opportunity"]
+                for dt in common_doctypes_to_check:
+                    if frappe.db.exists(dt, doc_name):
+                        found_doctype = dt
+                        break
             
             if found_doctype:
                 full_context += get_doc_context(found_doctype, doc_name) + "\n\n"
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
-    # Clean the prompt of @-references before sending to the model
     clean_prompt = re.sub(r'@([\w.-]+)', '', prompt).strip()
 
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
@@ -323,7 +341,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
     return generate_text(final_prompt, model)
 
 
-# --- PROJECT-SPECIFIC FUNCTIONS (Unaffected by chat changes) ---
+# --- PROJECT-SPECIFIC FUNCTIONS ---
 def generate_tasks(project_id, template):
     """Generates a list of tasks for a project using Gemini."""
     if not frappe.db.exists("Project", project_id):
