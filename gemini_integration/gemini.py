@@ -308,28 +308,24 @@ def search_calendar(credentials, query):
 def generate_chat_response(prompt, model=None, conversation=None):
     """Handles chat interactions, including document references."""
     
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"\"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
     full_context = ""
     
     if doc_names:
         doctype_map = get_dynamic_doctype_map()
-        # --- THIS IS THE FIX for data lookups ---
-        # Get a full list of DocTypes for a more comprehensive fallback search.
         all_doctype_names = [d.name for d in frappe.get_all("DocType")]
 
         for doc_name in doc_names:
             doc_name = doc_name.strip()
             found_doctype = None
             
-            # 1. Try prefix-based matching first (fastest and most reliable)
             if '-' in doc_name:
                 prefix = doc_name.split('-')[0].upper()
                 mapped_doctype = doctype_map.get(prefix)
                 if mapped_doctype and frappe.db.exists(mapped_doctype, doc_name):
                     found_doctype = mapped_doctype
             
-            # 2. If no prefix match, search ALL doctypes by full name (more thorough)
             if not found_doctype:
                 for dt in all_doctype_names:
                     if frappe.db.exists(dt, doc_name):
@@ -341,7 +337,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"\"]+)"', '', prompt).strip()
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt).strip()
 
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     google_context = ""
@@ -349,12 +345,23 @@ def generate_chat_response(prompt, model=None, conversation=None):
     if is_google_integrated():
         creds = get_user_credentials()
         if creds:
-            if re.search(r'\b(email|mail|gmail)\b', prompt.lower()):
+            gmail_triggered = re.search(r'\b(email|mail|gmail)\b', prompt.lower())
+            drive_triggered = re.search(r'\b(drive|file|doc|document|sheet|slide)\b', prompt.lower())
+            calendar_triggered = re.search(r'\b(calendar|event|meeting)\b', prompt.lower())
+
+            if gmail_triggered:
                 google_context += search_gmail(creds, clean_prompt)
-            if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', prompt.lower()):
+            
+            if drive_triggered:
                 google_context += search_drive(creds, clean_prompt)
-            if re.search(r'\b(calendar|event|meeting)\b', prompt.lower()):
+
+            if calendar_triggered:
                 google_context += search_calendar(creds, clean_prompt)
+
+            if not any([gmail_triggered, drive_triggered, calendar_triggered]):
+                google_context += search_gmail(creds, clean_prompt)
+                google_context += "\n"
+                google_context += search_drive(creds, clean_prompt)
 
     final_prompt = ""
     if system_instruction:
