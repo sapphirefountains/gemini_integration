@@ -47,7 +47,6 @@ def generate_text(prompt, model_name=None):
 
 def get_doctype_map_from_naming_series():
     """Dynamically builds a map of naming series prefixes to DocTypes."""
-    # This is a simplified approach. A more robust solution would parse naming series more carefully.
     dt_with_series = frappe.get_all("DocType", filters={"naming_rule": "By Naming Series"}, fields=["name"])
     doctype_map = {}
     for d in dt_with_series:
@@ -78,7 +77,6 @@ def get_doc_context(prompt):
     
     for doc_name in doc_references:
         doc_name = doc_name.strip()
-        # Handle prefixes like 'PRJ-' or 'SO-'
         match = re.match(r'([a-zA-Z]+)-', doc_name)
         if not match:
             continue
@@ -125,7 +123,11 @@ def get_google_flow():
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/calendar.readonly",
     ]
-    return Flow.from_client_secrets_dictionary(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
+    # --- THIS IS THE FIX ---
+    # Use from_client_config instead of from_client_secrets_dictionary
+    return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
+    # --- END OF FIX ---
+
 
 def get_google_auth_url():
     """Generates the authorization URL for the user to click."""
@@ -164,7 +166,8 @@ def process_google_callback(code, state, error):
 
         token_doc.google_email = google_email
         token_doc.access_token = creds.token
-        token_doc.refresh_token = creds.refresh_token
+        if creds.refresh_token:
+            token_doc.refresh_token = creds.refresh_token
         token_doc.scopes = " ".join(creds.scopes) if creds.scopes else ""
         token_doc.save(ignore_permissions=True)
         frappe.db.commit()
@@ -196,7 +199,7 @@ def get_user_credentials():
             token_uri="https://oauth2.googleapis.com/token",
             client_id=get_google_settings().client_id,
             client_secret=get_google_settings().get_password('client_secret'),
-            scopes=token_doc.scopes.split(" ") if token_doc.scopes else None
+            scopes=token_doc.scopes.split(" ") if token_doc.scopes else []
         )
     except Exception as e:
         frappe.log_error(f"Could not get user credentials: {e}", "Gemini Integration")
