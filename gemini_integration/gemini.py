@@ -226,13 +226,16 @@ def search_gmail(credentials, query):
         return f"An error occurred with Gmail: {error}"
 
 def search_drive(credentials, query):
-    """Searches user's Google Drive and returns a context string."""
+    """Searches user's Google Drive, including Shared Drives."""
     try:
         service = build('drive', 'v3', credentials=credentials)
         results = service.files().list(
             q=f"fullText contains '{query}'",
             pageSize=5,
-            fields="nextPageToken, files(id, name, webViewLink)"
+            fields="nextPageToken, files(id, name, webViewLink)",
+            corpora='allDrives',
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True
         ).execute()
         items = results.get('files', [])
 
@@ -247,27 +250,36 @@ def search_drive(credentials, query):
         return f"An error occurred with Google Drive: {error}"
 
 def search_calendar(credentials, query):
-    """Searches user's Google Calendar for future events and returns a context string."""
+    """Searches all of the user's accessible Google Calendars for future events."""
     try:
         service = build('calendar', 'v3', credentials=credentials)
         now = datetime.utcnow().isoformat() + 'Z'
-        events_result = service.events().list(
-            calendarId='primary',
-            q=query,
-            timeMin=now,
-            maxResults=5,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        events = events_result.get('items', [])
+        
+        calendar_list = service.calendarList().list().execute()
+        all_events = []
 
-        if not events:
+        for calendar_list_entry in calendar_list.get('items', []):
+            calendar_id = calendar_list_entry['id']
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                q=query,
+                timeMin=now,
+                maxResults=5,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            all_events.extend(events_result.get('items', []))
+
+        if not all_events:
             return "No upcoming calendar events found matching the query."
         
+        sorted_events = sorted(all_events, key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
+        
         calendar_context = "Upcoming calendar events matching the query:\n"
-        for event in events:
+        for event in sorted_events[:5]:
             start = event['start'].get('dateTime', event['start'].get('date'))
-            calendar_context += f"- Summary: {event['summary']}, Start: {start}\n"
+            calendar_name = event.get('organizer', {}).get('displayName', '')
+            calendar_context += f"- Summary: {event['summary']}, Start: {start} (in Calendar: {calendar_name})\n"
         return calendar_context
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
@@ -326,8 +338,6 @@ def generate_chat_response(prompt, model=None, conversation=None):
     if full_context:
         final_prompt += f"--- ERPNext Data Context ---\n{full_context}\n"
     
-    # --- THIS IS THE CRITICAL FIX ---
-    # This block was missing, so the fetched Google data was never being used.
     if google_context:
         final_prompt += f"--- Google Workspace Data Context ---\n{google_context}\n"
 
