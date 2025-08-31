@@ -63,7 +63,7 @@ def get_cached_doctype_map():
     cached_map = frappe.cache().get(cache_key)
     if not cached_map:
         cached_map = get_doctype_map_from_naming_series()
-        frappe.cache().set(cache_key, cached_map, expires_in_sec=3600)
+        frappe.cache().set(cache_key, cached_map, expire=3600) # Use 'expire' for older versions
     return cached_map
 
 def get_doc_context(prompt):
@@ -123,17 +123,16 @@ def get_google_flow():
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/calendar.readonly",
     ]
-    # --- THIS IS THE FIX ---
-    # Use from_client_config instead of from_client_secrets_dictionary
     return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
-    # --- END OF FIX ---
-
 
 def get_google_auth_url():
     """Generates the authorization URL for the user to click."""
     flow = get_google_flow()
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-    frappe.cache().set(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
+    # --- THIS IS THE FIX ---
+    # Use 'expire' instead of 'expires_in_sec' for older Frappe versions
+    frappe.cache().set(f"google_oauth_state_{frappe.session.user}", state, expire=600)
+    # --- END OF FIX ---
     return authorization_url
 
 def process_google_callback(code, state, error):
@@ -351,4 +350,3 @@ def analyze_risks(project_id):
         return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
 
 
-				
