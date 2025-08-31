@@ -1,98 +1,93 @@
 frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
-    let page = frappe.ui.make_app_page({
-        parent: wrapper,
-        title: 'Gemini Chat',
-        single_column: true
+	let page = frappe.ui.make_app_page({
+		parent: wrapper,
+		title: 'Gemini Chat',
+		single_column: true
+	});
+
+	// Add custom styles
+	const styles = `
+		.gemini-chat-wrapper { max-width: 900px; margin: 0 auto; }
+		.chat-history { height: 60vh; overflow-y: auto; border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; margin-bottom: 16px; background-color: #f9fafb; }
+		.chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; word-wrap: break-word; }
+		.chat-bubble.user { background-color: #3b82f6; color: white; margin-left: auto; border-bottom-right-radius: 0; }
+		.chat-bubble.gemini { background-color: #e5e7eb; color: #1f2937; margin-right: auto; border-bottom-left-radius: 0; }
+        .chat-bubble.gemini img { max-width: 100%; border-radius: 8px; margin-top: 8px; }
+		.chat-input-area { display: flex; align-items: center; gap: 8px; }
+		.chat-input-area textarea { flex-grow: 1; }
+        .attachment-preview { margin-top: 10px; }
+        .attachment-preview img { max-width: 100px; max-height: 100px; border-radius: 5px; }
+        .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+        .google-connect-btn { margin-left: auto; }
+	`;
+	$('<style>').text(styles).appendTo('head');
+
+	let html = `
+		<div class="gemini-chat-wrapper">
+			<div class="model-selector-area">
+                <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
+            </div>
+			<div class="chat-history"></div>
+			<div class="chat-input-area">
+				<textarea class="form-control" rows="2" placeholder="Type your message..."></textarea>
+                <label for="file-upload" class="btn btn-default" style="cursor: pointer;">
+                    <i class="fa fa-paperclip"></i>
+                </label>
+                <input type="file" id="file-upload" style="display: none;" accept="image/*">
+				<button class="btn btn-primary send-btn">Send</button>
+			</div>
+            <div class="attachment-preview"></div>
+		</div>
+	`;
+	$(page.body).html(html);
+
+    let chat_history = $(page.body).find('.chat-history');
+    let chat_input = $(page.body).find('.chat-input-area textarea');
+    let send_btn = $(page.body).find('.send-btn');
+    let file_input = $(page.body).find('#file-upload');
+    let attachment_preview = $(page.body).find('.attachment-preview');
+    let google_connect_btn = $(page.body).find('.google-connect-btn');
+    let conversation = [];
+    let current_file_url = null;
+
+    // --- THIS FIXES THE MODEL SELECTOR ---
+    page.model_selector = frappe.ui.form.make_control({
+        parent: $(page.body).find('.model-selector-area'),
+        df: {
+            fieldtype: 'Select',
+            label: 'Model',
+            options: [
+                { label: "Gemini 1.5 Flash", value: "gemini-1.5-flash" },
+                { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
+            ],
+            // The 'change' event must be defined here
+            change: function() {
+                let selected_model = this.get_value();
+                frappe.storage.set('gemini_last_model', selected_model);
+            }
+        },
+        render_input: true,
     });
-
-    // Add custom styles for the chat interface
-    const style = `
-        .gemini-chat-wrapper { display: flex; flex-direction: column; height: calc(100vh - 200px); }
-        .gemini-chat-history { flex-grow: 1; overflow-y: auto; padding: 20px; border: 1px solid #d1d8dd; border-radius: 6px; }
-        .chat-message { margin-bottom: 15px; display: flex; flex-direction: column; }
-        .user-message { align-self: flex-end; background-color: #4796f7; color: white; border-radius: 12px 12px 0 12px; padding: 10px 15px; max-width: 70%; }
-        .gemini-message { align-self: flex-start; background-color: #f1f1f1; color: #333; border-radius: 12px 12px 12px 0; padding: 10px 15px; max-width: 70%; }
-        .gemini-message pre { background-color: #2d2d2d; color: #f8f8f2; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; }
-        .gemini-message code { font-family: 'Monaco', 'Menlo', 'Courier New', monospace; }
-        .gemini-message a { color: #007bff; }
-        .chat-input-area { display: flex; padding-top: 15px; }
-        .chat-input { flex-grow: 1; margin-right: 10px; }
-        .attachment-preview { margin-top: 10px; max-width: 200px; max-height: 200px; border-radius: 6px; }
-        #gemini-chat-input { resize: none; }
-    `;
-    // Correctly add the style to the document head
-    $('<style>').text(style).appendTo('head');
-
-
-    // Main HTML structure for the chat page
-    const chat_html = `
-        <div class="gemini-chat-container">
-            <div class="row">
-                <div class="col-md-9">
-                    <h3 id="connection-status">Connecting to your world...</h3>
-                </div>
-                <div class="col-md-3 text-right" id="google-controls"></div>
-            </div>
-            <div class="gemini-chat-wrapper mt-4">
-                <div class="gemini-chat-history" id="gemini-chat-history">
-                    <div class="gemini-message">
-                        Hello! How can I help you today? You can ask me about documents in ERPNext by using '@' (e.g., @PRJ-00183) or connect your Google Account to ask about your emails, files, and calendar events.
-                    </div>
-                </div>
-                <div class="chat-input-area">
-                    <div class="frappe-control" data-fieldtype="Text" data-fieldname="chat-input" style="flex-grow: 1;">
-                         <textarea class="form-control" id="gemini-chat-input" rows="2" placeholder="Type your message..."></textarea>
-                    </div>
-                    <div class="attachment-btn-wrapper ml-2">
-                        <label for="file-upload" class="btn btn-default" style="margin-bottom: 0;">
-                            <i class="fa fa-paperclip"></i>
-                        </label>
-                        <input id="file-upload" type="file" style="display: none;">
-                    </div>
-                    <button class="btn btn-primary ml-2" id="send-message-btn">Send</button>
-                </div>
-                <div id="attachment-preview-container"></div>
-            </div>
-        </div>
-    `;
-
-    // Correctly and safely append the HTML structure to the page body
-    $(page.body).append(chat_html);
-
-
-    let conversation_history = [];
-    let attached_file_url = null;
-    const chat_history_div = $("#gemini-chat-history");
-    const send_button = $("#send-message-btn");
-    const chat_input = $("#gemini-chat-input");
-    const file_upload = $("#file-upload");
-    const attachment_preview_container = $("#attachment-preview-container");
-    const google_controls_div = $("#google-controls");
-    const connection_status_h3 = $("#connection-status");
-
-
-    function update_ui_for_google_status(is_connected) {
-        if (is_connected) {
-            connection_status_h3.text("Connected to Google");
-            google_controls_div.html('<button class="btn btn-danger btn-sm" id="disconnect-google-btn">Disconnect Google Account</button>');
-        } else {
-            connection_status_h3.text("Connect your Google Account to ask about your emails, files, and calendar.");
-            google_controls_div.html('<button class="btn btn-primary" id="connect-google-btn">Connect Google Account</button>');
-        }
+    // Set initial value from localStorage
+    let last_model = frappe.storage.get('gemini_last_model');
+    if (last_model) {
+        page.model_selector.set_value(last_model);
     }
+    // --- END OF FIX ---
     
+    // Check Google Integration Status
     frappe.call({
         method: "gemini_integration.api.check_google_integration",
         callback: function(r) {
-            update_ui_for_google_status(r.message);
+            if (r.message) {
+                google_connect_btn.text("Google Account Connected").removeClass("btn-secondary").addClass("btn-success");
+            }
         }
     });
 
-
-    // Event listener for the connect button
-    google_controls_div.on('click', '#connect-google-btn', function() {
+    google_connect_btn.on('click', function() {
         frappe.call({
-            method: "gemini_integration.api.get_auth_url",
+            method: 'gemini_integration.api.get_auth_url',
             callback: function(r) {
                 if (r.message) {
                     window.open(r.message, "_blank");
@@ -101,93 +96,90 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         });
     });
 
-
-    function add_message_to_history(sender, message, file_url=null) {
-        let message_html = `<div class="${sender}-message">`;
-        if (file_url) {
-            message_html += `<img src="${file_url}" class="attachment-preview"><br>`;
-        }
-
-        if (sender === 'gemini') {
-            const converter = new showdown.Converter();
-            message_html += converter.makeHtml(message);
-        } else {
-            message_html += message.replace(/\n/g, '<br>');
-        }
-        message_html += `</div>`;
-        
-        const message_div = $(`<div class="chat-message">${message_html}</div>`);
-        chat_history_div.append(message_div);
-        chat_history_div.scrollTop(chat_history_div[0].scrollHeight);
-    }
-
-    function send_message() {
-        const prompt = chat_input.val().trim();
-        if (!prompt && !attached_file_url) return;
-
-        add_message_to_history('user', prompt, attached_file_url);
-        chat_input.val('');
-        attachment_preview_container.empty();
-        const temp_file_url = attached_file_url;
-        attached_file_url = null;
-
-        frappe.show_alert({ message: 'Getting response from Gemini...', indicator: 'blue' });
-
-        frappe.call({
-            method: "gemini_integration.api.chat",
-            args: {
-                prompt: prompt,
-                model: "gemini-1.5-flash", // Update as needed
-                conversation: conversation_history,
-                file_url: temp_file_url
-            },
-            callback: function(r) {
-                frappe.hide_alert();
-                const response = r.message;
-                conversation_history.push({ role: "user", parts: [prompt] });
-                conversation_history.push({ role: "model", parts: [response] });
-                add_message_to_history('gemini', response);
-            },
-            error: function(r) {
-                frappe.hide_alert();
-                frappe.msgprint({
-                    title: __('Error'),
-                    indicator: 'red',
-                    message: r.message || __("An unknown error occurred.")
-                });
-            }
-        });
-    }
-
-    send_button.on('click', send_message);
-    chat_input.on('keypress', function(e) {
-        if (e.which == 13 && !e.shiftKey) {
-            e.preventDefault();
-            send_message();
-        }
-    });
-
-    file_upload.on('change', function(event) {
-        const file = event.target.files[0];
+    file_input.on('change', function() {
+        let file = this.files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const preview = `<img src="${e.target.result}" alt="Attachment Preview" class="attachment-preview">`;
-                attachment_preview_container.html(preview);
-            };
-            reader.readAsDataURL(file);
-
-            frappe.upload.upload_file(file, {
+            frappe.file_uploader.upload_file(file, {
                 callback: (attachment) => {
-                    attached_file_url = attachment.file_url;
-                },
-                onerror: () => {
-                    frappe.msgprint(__("File upload failed."));
+                    current_file_url = attachment.file_url;
+                    attachment_preview.html(`<img src="${current_file_url}" alt="Attachment Preview">`);
                 }
             });
         }
     });
 
-    // Load showdown library for Markdown rendering
-    frappe.require("https://cdnjs.cloudflare.com/ajax/libs/showdown/1.9.1/showdown.min.js");
-};
+    const send_message = () => {
+        let prompt = chat_input.val().trim();
+        if (!prompt && !current_file_url) return;
+
+        add_to_history('user', prompt, current_file_url);
+        chat_input.val('');
+        attachment_preview.html('');
+        
+        frappe.show_alert({message: "Getting response from Gemini...", indicator: "blue"}, 5);
+
+        frappe.call({
+            method: 'gemini_integration.api.chat',
+            args: {
+                prompt: prompt,
+                model: page.model_selector.get_value(),
+                conversation: JSON.stringify(conversation),
+                file_url: current_file_url
+            },
+            callback: function(r) {
+                // --- THIS FIXES THE "NO RESPONSE" BUG ---
+                // The function frappe.hide_alert() does not exist in this version.
+                // We simply clear all alerts, which is safer.
+                frappe.clear_alerts();
+                // --- END OF FIX ---
+                let response_text = r.message;
+                add_to_history('gemini', response_text);
+            },
+            error: function(r) {
+                frappe.clear_alerts();
+                let error_msg = r.message ? r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;") : "An unknown error occurred.";
+                frappe.msgprint({
+                    title: __('Error'),
+                    indicator: 'red',
+                    message: error_msg
+                });
+            }
+        });
+        current_file_url = null;
+    };
+
+    const add_to_history = (role, text, file_url = null) => {
+        let bubble = $(`<div class="chat-bubble ${role}"></div>`);
+        
+        if (text) {
+            // Use showdown to render markdown
+            let converter = new showdown.Converter();
+            let html = converter.makeHtml(text);
+            bubble.html(html);
+        }
+
+        if (file_url) {
+            let img = $(`<img src="${file_url}" alt="User attachment">`);
+            bubble.append(img);
+        }
+        
+        chat_history.append(bubble);
+        chat_history.scrollTop(chat_history[0].scrollHeight);
+        conversation.push({role: role, text: text});
+    };
+    
+    // Add showdown.js library to the page
+    let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
+	$(`<script src="${script_url}"></script>`).appendTo("head");
+
+    send_btn.on('click', send_message);
+    chat_input.on('keypress', function(e) {
+        if (e.which === 13 && !e.shiftKey) {
+            e.preventDefault();
+            send_message();
+        }
+    });
+}
+
+
+			
