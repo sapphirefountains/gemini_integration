@@ -1,11 +1,12 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2025-08-30 19:30:00.000000",
+ "creation": "2025-08-30 15:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "user",
+  "google_email",
   "access_token",
   "refresh_token",
   "scopes"
@@ -20,24 +21,29 @@
    "unique": 1
   },
   {
-   "fieldname": "access_token",
+   "fieldname": "google_email",
    "fieldtype": "Data",
+   "label": "Google Email"
+  },
+  {
+   "fieldname": "access_token",
+   "fieldtype": "Text",
    "label": "Access Token"
   },
   {
    "fieldname": "refresh_token",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Refresh Token"
   },
   {
    "fieldname": "scopes",
-   "fieldtype": "Small Text",
+   "fieldtype": "Text",
    "label": "Scopes"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-30 19:30:00.000000",
+ "modified": "2025-08-30 15:05:00.000000",
  "modified_by": "Administrator",
  "module": "Gemini Integration",
  "name": "Google User Token",
@@ -60,5 +66,3 @@
  "sort_order": "DESC",
  "states": []
 }
-
-
