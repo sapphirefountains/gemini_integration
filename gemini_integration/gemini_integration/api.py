@@ -15,11 +15,11 @@ def generate(prompt, model=None):
     return generate_text(prompt, model)
 
 @frappe.whitelist()
-def chat(prompt=None, model=None, conversation=None, file_url=None):
+def chat(prompt=None, model=None, conversation=None):
     """Endpoint for the main chat functionality."""
-    if not prompt and not file_url:
-        frappe.throw("A prompt or a file is required.")
-    return generate_chat_response(prompt, model, conversation, file_url)
+    if not prompt:
+        frappe.throw("A prompt is required.")
+    return generate_chat_response(prompt, model, conversation)
 
 @frappe.whitelist()
 def get_project_tasks(project_id, template):
