@@ -225,7 +225,11 @@ def search_gmail(credentials, query):
     """Searches Gmail for a query and returns message subjects and snippets."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
-        search_query = query if query.strip() else 'in:inbox'
+        
+        if query.strip():
+            search_query = f'"{query}" in:anywhere'
+        else:
+            search_query = 'in:inbox'
         
         results = service.users().messages().list(userId='me', q=search_query, maxResults=5).execute()
         messages = results.get('messages', [])
@@ -233,15 +237,42 @@ def search_gmail(credentials, query):
         email_context = "Recent emails matching your query:\n"
         if not messages:
             return "No recent emails found matching your query."
-            
+
+        batch = service.new_batch_http_request()
+        email_data = {}
+
+        def create_callback(msg_id):
+            def callback(request_id, response, exception):
+                if exception:
+                    frappe.log_error(f"Gmail batch callback error for msg {msg_id}: {exception}", "Gemini Gmail Error")
+                else:
+                    email_data[msg_id] = response
+            return callback
+
         for msg in messages:
-            msg_data = service.users().messages().get(userId='me', id=msg['id'], format='metadata', metadataHeaders=['Subject']).execute()
-            subject = next((h['value'] for h in msg_data['payload']['headers'] if h['name'] == 'Subject'), 'No Subject')
-            snippet = msg_data.get('snippet', '')
-            email_context += f"- Subject: {subject}\n  Snippet: {snippet}\n"
+            msg_id = msg['id']
+            batch.add(
+                service.users().messages().get(userId='me', id=msg_id, format='metadata', metadataHeaders=['Subject']),
+                callback=create_callback(msg_id)
+            )
+        
+        batch.execute()
+
+        for msg in messages:
+            msg_id = msg['id']
+            msg_data = email_data.get(msg_id)
+            if msg_data:
+                subject = next((h['value'] for h in msg_data['payload']['headers'] if h['name'] == 'Subject'), 'No Subject')
+                snippet = msg_data.get('snippet', '')
+                email_context += f"- Subject: {subject}\n  Snippet: {snippet}\n"
+        
         return email_context
     except HttpError as error:
-        return f"An error occurred with Gmail: {error}"
+        frappe.log_error(
+            message=f"Google Gmail API Error for query '{query}': {error.content}",
+            title="Gemini Gmail Error"
+        )
+        return "An API error occurred during Gmail search. Please check the Error Log for details.\n"
 
 def search_drive(credentials, query):
     """Searches Google Drive for a query or lists recent files."""
@@ -344,7 +375,13 @@ def get_drive_file_context(credentials, file_id):
         context += f"Content Snippet:\n{content[:3000]}"
         return context
     except HttpError as error:
-        return f"An error occurred while fetching Google Drive file {file_id}: {error}\n"
+        frappe.log_error(
+            message=f"Google Drive API Error for fileId {file_id}: {error.content}",
+            title="Gemini Google Drive Error"
+        )
+        if error.resp.status == 404:
+            return f"(System: A 404 Not Found error occurred for Google Drive file {file_id}. This means the file does not exist or you do not have permission to access it. Please double-check the file ID and your permissions in Google Drive. More details may be in the Error Log.)\n"
+        return f"An API error occurred while fetching Google Drive file {file_id}. Please check the Error Log for details.\n"
     except Exception as e:
         frappe.log_error(f"Error fetching drive file context for {file_id}: {str(e)}")
         return f"(System: Could not retrieve context for Google Drive file {file_id}.)\n"
@@ -398,7 +435,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
     """
     
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
@@ -487,7 +524,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += search_drive(creds, search_prompt)
 
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
