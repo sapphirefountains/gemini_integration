@@ -51,15 +51,17 @@ def get_doc_context(doctype, docname):
         doc = frappe.get_doc(doctype, docname)
         doc_dict = doc.as_dict()
         context = f"Context for {doctype} '{docname}':\n"
-        context += json.dumps(doc_dict, indent=2, default=str)
+        for field, value in doc_dict.items():
+            if value and not isinstance(value, list): # Exclude child tables for brevity
+                context += f"- {field}: {value}\n"
         
         doc_url = get_url_to_form(doctype, docname)
-        context += f"\n\nLink to document: {doc_url}"
+        context += f"\nLink: {doc_url}"
         return context
     except frappe.DoesNotExistError:
         return f"(System: Document '{docname}' of type '{doctype}' not found.)\n"
     except Exception as e:
-        frappe.log_error(f"Error fetching doc context for {doctype} {docname}: {str(e)}")
+        frappe.log_error(f"Error fetching doc context: {str(e)}")
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
 def get_dynamic_doctype_map():
@@ -306,7 +308,8 @@ def search_calendar(credentials, query):
 def generate_chat_response(prompt, model=None, conversation=None):
     """Handles chat interactions, including document references."""
     
-    doc_names = re.findall(r'@([\w\s.-]+)', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"\"]+)"', prompt)
+    doc_names = [item for tpl in references for item in tpl if item]
     full_context = ""
     
     if doc_names:
@@ -338,7 +341,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
-    clean_prompt = re.sub(r'@([\w\s.-]+)', '', prompt).strip()
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"\"]+)"', '', prompt).strip()
 
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     google_context = ""
@@ -383,8 +386,7 @@ def generate_tasks(project_id, template):
     Project Details: {json.dumps(project_details, indent=2, default=str)}
     
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "subject" and "description".
-    Example: [{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}, ...]
-    """
+    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...]    """
     
     response_text = generate_text(prompt)
     try:
@@ -406,8 +408,7 @@ def analyze_risks(project_id):
     Project Details: {json.dumps(project_details, indent=2, default=str)}
     
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "risk_name" (a short title) and "risk_description".
-    Example: [{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}, ...]
-    """
+    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...]    """
     
     response_text = generate_text(prompt)
     try:
