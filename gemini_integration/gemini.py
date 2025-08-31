@@ -213,7 +213,6 @@ def search_gmail(credentials, query):
     """
     try:
         service = build('gmail', 'v1', credentials=credentials)
-        # If the user provides a search term, use it. Otherwise, list recent mail.
         search_query = query if query.strip() else 'in:inbox'
         
         results = service.users().messages().list(userId='me', q=search_query, maxResults=5).execute()
@@ -239,7 +238,6 @@ def search_drive(credentials, query):
     try:
         service = build('drive', 'v3', credentials=credentials)
         
-        # If the user provides a search term, use it. Otherwise, list recent files.
         if query.strip():
             search_params = {'q': f"fullText contains '{query}'"}
         else:
@@ -288,7 +286,11 @@ def search_calendar(credentials, query):
                 singleEvents=True,
                 orderBy='startTime'
             ).execute()
-            all_events.extend(events_result.get('items', []))
+            
+            # Add calendar name to each event for context
+            for event in events_result.get('items', []):
+                event['calendar_name'] = calendar_list_entry.get('summary', calendar_id)
+                all_events.append(event)
 
         if not all_events:
             return "No upcoming calendar events found in the next 7 days."
@@ -298,8 +300,11 @@ def search_calendar(credentials, query):
         calendar_context = "Upcoming calendar events in the next 7 days:\n"
         for event in sorted_events:
             start = event['start'].get('dateTime', event['start'].get('date'))
-            calendar_name = calendar_list_entry.get('summary', calendar_id)
-            calendar_context += f"- {event['summary']} at {start} (from Calendar: {calendar_name})\n"
+            # --- THIS IS THE FIX ---
+            # Use .get() for the summary to prevent a crash if the event has no title.
+            summary = event.get('summary', 'Untitled Event')
+            calendar_name = event['calendar_name']
+            calendar_context += f"- {summary} at {start} (from Calendar: {calendar_name})\n"
         return calendar_context
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
