@@ -22,6 +22,9 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 	let html = `
 		<div class="gemini-chat-wrapper">
 			<div class="model-selector-area">
+				<button class="btn btn-default btn-sm help-btn" title="Help">
+					<i class="fa fa-question-circle"></i>
+				</button>
                 <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
             </div>
 			<div class="chat-history"></div>
@@ -37,6 +40,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     let chat_input = $(page.body).find('.chat-input-area textarea');
     let send_btn = $(page.body).find('.send-btn');
     let google_connect_btn = $(page.body).find('.google-connect-btn');
+	let help_btn = $(page.body).find('.help-btn');
     let conversation = [];
 
     page.model_selector = frappe.ui.form.make_control({
@@ -88,6 +92,38 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             }
         });
     });
+
+	help_btn.on('click', () => {
+		const help_html = `
+			<div>
+				<h4>How to Reference Data</h4>
+				<p>You can reference data from ERPNext and Google Workspace directly in your chat messages.</p>
+				
+				<h5>ERPNext Documents</h5>
+				<p>Use <code>@DocType-ID</code> or <code>@"Doc Name"</code> to reference any document.</p>
+				<ul>
+					<li><code>What is the status of @PRJ-00183?</code></li>
+					<li><code>Summarize customer @"Valley Fair"</code></li>
+				</ul>
+
+				<h5>Google Drive & Gmail</h5>
+				<p>Use <code>@gdrive/file_id</code> or <code>@gmail/message_id</code> to reference specific items.</p>
+				<ul>
+					<li><code>Summarize the file @gdrive/1a2b3c...</code></li>
+					<li><code>What was the outcome of email @gmail/a1b2c3...?</code></li>
+				</ul>
+
+				<h5>General Search</h5>
+				<p>For general queries, the system will automatically search Google Drive and Gmail. You can also use keywords like <code>email</code>, <code>drive</code>, or <code>calendar</code> to focus the search.</p>
+			</div>
+		`;
+
+		frappe.msgprint({
+			title: __('Help: Referencing Data'),
+			indicator: 'blue',
+			message: help_html
+		});
+	});
 
     const send_message = () => {
         let prompt = chat_input.val().trim();
