@@ -5,35 +5,76 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 		single_column: true
 	});
 
-    // Add showdown.js for Markdown rendering
-    let script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js';
-    script.onload = () => {
-        // Initialize the converter once the script is loaded
-        page.converter = new showdown.Converter({
-            simplifiedAutoLink: true,
-            strikethrough: true,
-            tables: true,
-            openLinksInNewWindow: true
-        });
-    };
-    document.head.appendChild(script);
+    let google_button_html = `<button id="google-connect-btn" class="btn btn-default btn-sm">
+                                <i class="fa fa-google"></i> Connect Google Account
+                              </button>`;
 
-	// Add custom styles
-    let style = `
-        .gemini-chat-container { display: flex; flex-direction: column; height: calc(100vh - 200px); }
-        .gemini-chat-header { display: flex; justify-content: flex-end; padding: 10px; border-bottom: 1px solid #d1d8dd; }
-        .gemini-chat-history { flex-grow: 1; overflow-y: auto; padding: 20px; }
-        .gemini-chat-footer { padding: 10px; border-top: 1px solid #d1d8dd; display: flex; }
-        .chat-message { margin-bottom: 15px; display: flex; flex-direction: column; }
-        .user-message { align-items: flex-end; }
-        .bot-message { align-items: flex-start; }
-        .message-bubble { max-width: 80%; padding: 10px 15px; border-radius: 15px; }
-        .user-message .message-bubble { background-color: #007bff; color: white; border-top-right-radius: 0; }
-        .bot-message .message-bubble { background-color: #f1f0f0; border-top-left-radius: 0; }
-        .bot-message .message-bubble h1, .bot-message .message-bubble h2, .bot-message .message-bubble h3 { margin-top: 0; }
-        .bot-message .message-bubble ul, .bot-message .message-bubble ol { padding-left: 20px; }
-        .bot-message .message-bubble p { margin-bottom: 5px; }
+    let container = $(`
+        <div class="gemini-chat-container" style="display: flex; flex-direction: column; height: calc(100vh - 160px);">
+            <div class="gemini-chat-header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px;">
+                <div class="google-connect-wrapper">${google_button_html}</div>
+                <div class="model-selector-wrapper" style="width: 250px;"></div>
+            </div>
+            <div class="gemini-chat-history" style="flex-grow: 1; overflow-y: auto; border: 1px solid #d1d8dd; border-radius: 6px; padding: 10px;"></div>
+            <div class="gemini-chat-input-area" style="padding-top: 10px; display: flex; align-items: center;">
+                <textarea class="form-control" placeholder="Type your message..."></textarea>
+                <button class="btn btn-primary" style="margin-left: 10px;">Send</button>
+                 <button class="btn btn-default btn-attach" style="margin-left: 5px;" title="Attach File">
+                    <i class="fa fa-paperclip"></i>
+                </button>
+                <input type="file" style="display: none;" id="file-upload-input" />
+            </div>
+            <div class="gemini-chat-attachment-preview" style="padding-top: 5px; max-width: 200px;"></div>
+        </div>
+    `).appendTo(page.body);
+
+    let chat_history = container.find(".gemini-chat-history");
+    let input_area = container.find(".gemini-chat-input-area textarea");
+    let send_button = container.find(".gemini-chat-input-area button.btn-primary");
+    let attach_button = container.find(".btn-attach");
+    let file_input = container.find("#file-upload-input");
+    let attachment_preview = container.find(".gemini-chat-attachment-preview");
+
+    let conversation_history = [];
+    let attached_file_url = null;
+
+    // --- GOOGLE AUTH LOGIC ---
+    function update_google_button_state() {
+        frappe.call({
+            method: "gemini_integration.api.check_google_integration",
+            callback: (r) => {
+                let btn = container.find("#google-connect-btn");
+                if (r.message) {
+                    btn.removeClass("btn-default").addClass("btn-success").html(`<i class="fa fa-check"></i> Google Account Connected`);
+                    btn.prop('disabled', true);
+                }
+            }
+        });
+    }
+
+    container.on("click", "#google-connect-btn", () => {
+        let btn = container.find("#google-connect-btn");
+        if (btn.prop('disabled')) return;
+
+        frappe.call({
+            method: "gemini_integration.api.get_auth_url",
+            callback: (r) => {
+                if (r.message) {
+                    // Open in a new tab for the user to authenticate
+                    window.open(r.message, "_blank");
+                }
+            }
+        });
+    });
+
+    update_google_button_state();
+    // Check every 10 seconds if the user has completed authentication in the other tab
+    setInterval(update_google_button_state, 10000);
+
+    // --- The rest of your chat logic (send_message, add_message, etc.) remains here ---
+    // Make sure to copy the rest of your working chat JS code below this point.
+}
+
         .bot-message .message-bubble a { color: #007bff; }
         #gemini-chat-input { flex-grow: 1; margin-right: 10px; }
     `;
