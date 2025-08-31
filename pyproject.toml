@@ -11,6 +11,8 @@ dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     # Add Google Generative AI dependency
     "google-generativeai"
+    "google-api-python-client",
+    "google-auth-oauthlib"
 ]
 
 [build-system]
