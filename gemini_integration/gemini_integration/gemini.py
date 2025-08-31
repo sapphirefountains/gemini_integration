@@ -63,10 +63,7 @@ def get_doc_context(doctype, docname):
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
 def get_dynamic_doctype_map():
-    """
-    Builds a map of naming series prefixes to DocTypes using the reliable logic
-    from the previously working version.
-    """
+    """Builds a map of naming series prefixes to DocTypes."""
     cache_key = "gemini_doctype_prefix_map"
     doctype_map = frappe.cache().get_value(cache_key)
     if doctype_map:
@@ -264,9 +261,7 @@ def search_drive(credentials, query):
         return f"An error occurred with Google Drive: {error}"
 
 def search_calendar(credentials, query):
-    """
-    Lists events in the next 7 days across all accessible calendars.
-    """
+    """Lists events in the next 7 days across all accessible calendars."""
     try:
         service = build('calendar', 'v3', credentials=credentials)
         now = datetime.utcnow()
@@ -287,7 +282,6 @@ def search_calendar(credentials, query):
                 orderBy='startTime'
             ).execute()
             
-            # Add calendar name to each event for context
             for event in events_result.get('items', []):
                 event['calendar_name'] = calendar_list_entry.get('summary', calendar_id)
                 all_events.append(event)
@@ -300,8 +294,6 @@ def search_calendar(credentials, query):
         calendar_context = "Upcoming calendar events in the next 7 days:\n"
         for event in sorted_events:
             start = event['start'].get('dateTime', event['start'].get('date'))
-            # --- THIS IS THE FIX ---
-            # Use .get() for the summary to prevent a crash if the event has no title.
             summary = event.get('summary', 'Untitled Event')
             calendar_name = event['calendar_name']
             calendar_context += f"- {summary} at {start} (from Calendar: {calendar_name})\n"
@@ -314,24 +306,29 @@ def search_calendar(credentials, query):
 def generate_chat_response(prompt, model=None, conversation=None):
     """Handles chat interactions, including document references."""
     
-    doc_names = re.findall(r'@([\w.-]+)', prompt)
+    doc_names = re.findall(r'@([\w\s.-]+)', prompt)
     full_context = ""
     
     if doc_names:
         doctype_map = get_dynamic_doctype_map()
+        # --- THIS IS THE FIX for data lookups ---
+        # Get a full list of DocTypes for a more comprehensive fallback search.
+        all_doctype_names = [d.name for d in frappe.get_all("DocType")]
+
         for doc_name in doc_names:
             doc_name = doc_name.strip()
             found_doctype = None
             
+            # 1. Try prefix-based matching first (fastest and most reliable)
             if '-' in doc_name:
                 prefix = doc_name.split('-')[0].upper()
                 mapped_doctype = doctype_map.get(prefix)
                 if mapped_doctype and frappe.db.exists(mapped_doctype, doc_name):
                     found_doctype = mapped_doctype
             
+            # 2. If no prefix match, search ALL doctypes by full name (more thorough)
             if not found_doctype:
-                common_doctypes_to_check = ["Customer", "Supplier", "Item", "Project", "Lead", "Opportunity"]
-                for dt in common_doctypes_to_check:
+                for dt in all_doctype_names:
                     if frappe.db.exists(dt, doc_name):
                         found_doctype = dt
                         break
@@ -341,7 +338,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
-    clean_prompt = re.sub(r'@([\w.-]+)', '', prompt).strip()
+    clean_prompt = re.sub(r'@([\w\s.-]+)', '', prompt).strip()
 
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     google_context = ""
