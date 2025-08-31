@@ -131,12 +131,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 file_url: current_file_url
             },
             callback: function(r) {
-                frappe.clear_alerts();
+                frappe.hide_global_message();
                 let response_text = r.message;
                 add_to_history('gemini', response_text);
             },
             error: function(r) {
-                frappe.clear_alerts();
+                frappe.hide_global_message();
                 let error_msg = r.message ? r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;") : "An unknown error occurred.";
                 frappe.msgprint({
                     title: __('Error'),
@@ -171,14 +171,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         conversation.push({role: role, text: text});
     };
     
-    // --- THIS IS THE FIX ---
     // Use the standard, robust method for adding an external script
     let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
     let script = document.createElement('script');
     script.type = 'text/javascript';
     script.src = script_url;
     document.head.appendChild(script);
-    // --- END OF FIX ---
 
     send_btn.on('click', send_message);
     chat_input.on('keypress', function(e) {
