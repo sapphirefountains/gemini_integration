@@ -63,7 +63,9 @@ def get_cached_doctype_map():
     cached_map = frappe.cache().get(cache_key)
     if not cached_map:
         cached_map = get_doctype_map_from_naming_series()
-        frappe.cache().set(cache_key, cached_map, expire=3600) # Use 'expire' for older versions
+        # --- FIX #1 ---
+        frappe.cache().set(cache_key, cached_map, expires_in_sec=3600)
+        # --- END OF FIX ---
     return cached_map
 
 def get_doc_context(prompt):
@@ -129,9 +131,8 @@ def get_google_auth_url():
     """Generates the authorization URL for the user to click."""
     flow = get_google_flow()
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-    # --- THIS IS THE FIX ---
-    # Use 'expire' instead of 'expires_in_sec' for older Frappe versions
-    frappe.cache().set(f"google_oauth_state_{frappe.session.user}", state, expire=600)
+    # --- FIX #2 ---
+    frappe.cache().set(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
     # --- END OF FIX ---
     return authorization_url
 
