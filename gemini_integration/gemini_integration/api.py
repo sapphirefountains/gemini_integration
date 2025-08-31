@@ -1,39 +1,47 @@
 import frappe
-import google.generativeai as genai
-from frappe.utils import get_url_to_form, get_site_url
-import re
-import json
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from gemini_integration.gemini import (
+    generate_text,
+    generate_chat_response,
+    generate_tasks,
+    analyze_risks,
+    get_google_auth_url,
+    handle_google_callback,
+    is_google_integrated
+)
 
-# --- EXISTING GEMINI FUNCTIONS ---
-# (configure_gemini, generate_text, etc. remain here, but may be updated below)
+@frappe.whitelist()
+def generate(prompt, model=None):
+    return generate_text(prompt, model)
 
-# --- NEW OAUTH AND GOOGLE API FUNCTIONS ---
+@frappe.whitelist()
+def chat(prompt=None, model=None, conversation=None, file_url=None):
+    if not prompt and not file_url:
+        frappe.throw("A prompt or a file is required.")
+    return generate_chat_response(prompt, model, conversation, file_url)
 
-def get_google_settings():
-    """Retrieves Google settings from Social Login Keys."""
-    settings = frappe.get_doc("Social Login Key", "Google")
-    if not settings or not settings.enable_social_login:
-        frappe.throw("Google Login is not enabled in Social Login Keys.")
-    return settings
+@frappe.whitelist()
+def get_project_tasks(project_id, template):
+    return generate_tasks(project_id, template)
 
-def get_google_flow():
-    """Builds the Google OAuth 2.0 Flow object."""
-    settings = get_google_settings()
-    redirect_uri = get_site_url(frappe.local.site) + "/api/method/gemini_integration.api.handle_google_callback"
+@frappe.whitelist()
+def get_project_risks(project_id):
+    return analyze_risks(project_id)
 
-    return Flow.from_client_secrets_dictionary(
-        client_secrets_dict={
-            "web": {
-                "client_id": settings.client_id,
-                "client_secret": settings.get_password('client_secret'),
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            }
-        },
+@frappe.whitelist()
+def get_auth_url():
+    """Gets the Google OAuth 2.0 authorization URL."""
+    return get_google_auth_url()
+
+@frappe.whitelist(allow_guest=True)
+def handle_google_callback(code=None, state=None, error=None):
+    """Handles the callback from Google after user consent."""
+    handle_google_callback(code, state, error)
+
+@frappe.whitelist()
+def check_google_integration():
+    """Checks if the current user has integrated their Google account."""
+    return is_google_integrated()
+
         scopes=[
             "https://www.googleapis.com/auth/userinfo.email",
             "https://www.googleapis.com/auth/userinfo.profile",
