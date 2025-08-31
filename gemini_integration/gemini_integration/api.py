@@ -5,26 +5,30 @@ from gemini_integration.gemini import (
     generate_tasks,
     analyze_risks,
     get_google_auth_url,
-    handle_google_callback,
+    process_google_callback,
     is_google_integrated
 )
 
 @frappe.whitelist()
 def generate(prompt, model=None):
+    """Endpoint for simple text generation."""
     return generate_text(prompt, model)
 
 @frappe.whitelist()
 def chat(prompt=None, model=None, conversation=None, file_url=None):
+    """Endpoint for the main chat functionality."""
     if not prompt and not file_url:
         frappe.throw("A prompt or a file is required.")
     return generate_chat_response(prompt, model, conversation, file_url)
 
 @frappe.whitelist()
 def get_project_tasks(project_id, template):
+    """Endpoint for generating tasks for a project."""
     return generate_tasks(project_id, template)
 
 @frappe.whitelist()
 def get_project_risks(project_id):
+    """Endpoint for analyzing risks for a project."""
     return analyze_risks(project_id)
 
 @frappe.whitelist()
@@ -34,6 +38,14 @@ def get_auth_url():
 
 @frappe.whitelist(allow_guest=True)
 def handle_google_callback(code=None, state=None, error=None):
+    """Handles the callback from Google after user consent."""
+    # This now correctly calls the processing function from the other file.
+    process_google_callback(code, state, error)
+
+@frappe.whitelist()
+def check_google_integration():
+    """Checks if the current user has integrated their Google account."""
+    return is_google_integrated()
     """Handles the callback from Google after user consent."""
     handle_google_callback(code, state, error)
 
