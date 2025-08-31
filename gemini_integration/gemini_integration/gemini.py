@@ -60,11 +60,12 @@ def get_doctype_map_from_naming_series():
 def get_cached_doctype_map():
     """Caches the DocType naming series map for 1 hour."""
     cache_key = "gemini_doctype_map"
-    cached_map = frappe.cache().get(cache_key)
+    cached_map = frappe.cache().get_value(cache_key)
     if not cached_map:
         cached_map = get_doctype_map_from_naming_series()
-        # --- FIX #1 ---
-        frappe.cache().set(cache_key, cached_map, expires_in_sec=3600)
+        # --- THIS IS THE FIX ---
+        # Use frappe.cache().set_value() which is the correct method
+        frappe.cache().set_value(cache_key, cached_map, expires_in_sec=3600)
         # --- END OF FIX ---
     return cached_map
 
@@ -131,8 +132,9 @@ def get_google_auth_url():
     """Generates the authorization URL for the user to click."""
     flow = get_google_flow()
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-    # --- FIX #2 ---
-    frappe.cache().set(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
+    # --- THIS IS THE FIX ---
+    # Use frappe.cache().set_value() which is the correct method
+    frappe.cache().set_value(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
     # --- END OF FIX ---
     return authorization_url
 
@@ -143,7 +145,7 @@ def process_google_callback(code, state, error):
         frappe.respond_as_web_page("Google Authentication Failed", f"An error occurred: {error}", http_status_code=401)
         return
 
-    cached_state = frappe.cache().get(f"google_oauth_state_{frappe.session.user}")
+    cached_state = frappe.cache().get_value(f"google_oauth_state_{frappe.session.user}")
     if not cached_state or cached_state != state:
         frappe.log_error("Google OAuth State Mismatch", "Gemini Integration")
         frappe.respond_as_web_page("Authentication Failed", "State mismatch. Please try again.", http_status_code=400)
@@ -349,5 +351,3 @@ def analyze_risks(project_id):
         return risks
     except json.JSONDecodeError:
         return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
-
-
