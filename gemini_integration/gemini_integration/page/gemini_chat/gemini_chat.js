@@ -120,7 +120,11 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         chat_input.val('');
         attachment_preview.html('');
         
-        frappe.show_alert({message: "Getting response from Gemini...", indicator: "blue"}, 5);
+        let loading = frappe.msgprint({
+            message: __("Getting response from Gemini..."),
+            indicator: 'blue',
+            title: __('Please Wait')
+        });
 
         frappe.call({
             method: 'gemini_integration.api.chat',
@@ -131,12 +135,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 file_url: current_file_url
             },
             callback: function(r) {
-                frappe.hide_global_message();
+                loading.hide();
                 let response_text = r.message;
                 add_to_history('gemini', response_text);
             },
             error: function(r) {
-                frappe.hide_global_message();
+                loading.hide();
                 let error_msg = r.message ? r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;") : "An unknown error occurred.";
                 frappe.msgprint({
                     title: __('Error'),
