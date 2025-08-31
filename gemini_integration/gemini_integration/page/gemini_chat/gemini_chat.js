@@ -60,7 +60,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
             ],
             change: function() {
-                // --- FIX: Add a guard clause ---
                 if (frappe.storage) {
                     let selected_model = this.get_value();
                     frappe.storage.set('gemini_last_model', selected_model);
@@ -70,19 +69,17 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         render_input: true,
     });
     
-    // --- FIX: Add a guard clause before getting the value ---
     if (frappe.storage) {
         let last_model = frappe.storage.get('gemini_last_model');
         if (last_model) {
             page.model_selector.set_value(last_model);
         } else {
-            page.model_selector.set_value('gemini-1.5-flash'); // Set a default
+            page.model_selector.set_value('gemini-1.5-flash');
         }
     } else {
-        page.model_selector.set_value('gemini-1.5-flash'); // Set a default
+        page.model_selector.set_value('gemini-1.5-flash');
     }
     
-    // Check Google Integration Status
     frappe.call({
         method: "gemini_integration.api.check_google_integration",
         callback: function(r) {
@@ -155,9 +152,13 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         let bubble = $(`<div class="chat-bubble ${role}"></div>`);
         
         if (text) {
-            let converter = new showdown.Converter();
-            let html = converter.makeHtml(text);
-            bubble.html(html);
+            if (window.showdown) {
+                let converter = new showdown.Converter();
+                let html = converter.makeHtml(text);
+                bubble.html(html);
+            } else {
+                bubble.text(text); // Fallback to plain text if showdown isn't loaded
+            }
         }
 
         if (file_url) {
@@ -170,9 +171,14 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         conversation.push({role: role, text: text});
     };
     
-    // Add showdown.js library to the page
+    // --- THIS IS THE FIX ---
+    // Use the standard, robust method for adding an external script
     let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
-	$(`<script src="${script_url}"></script>`).appendTo("head");
+    let script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src = script_url;
+    document.head.appendChild(script);
+    // --- END OF FIX ---
 
     send_btn.on('click', send_message);
     chat_input.on('keypress', function(e) {
@@ -182,12 +188,3 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         }
     });
 }
-
-Instructions to Apply the Fix
- * Replace the file: Go to ~/frappe-bench/apps/gemini_integration/gemini_integration/page/gemini_chat/gemini_chat.js and replace its entire content with the code from the block above.
- * Build Assets: From your frappe-bench terminal, run the build command. This is a critical step.
-   bench build
-
-
-
-
