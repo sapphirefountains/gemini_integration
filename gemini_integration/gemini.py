@@ -50,7 +50,6 @@ def get_doc_context(doctype, docname):
     try:
         doc = frappe.get_doc(doctype, docname)
         doc_dict = doc.as_dict()
-        # Use json.dumps for a clean, readable format of the document's data
         context = f"Context for {doctype} '{docname}':\n"
         context += json.dumps(doc_dict, indent=2, default=str)
         
@@ -81,15 +80,11 @@ def get_dynamic_doctype_map():
         if not autoname or not isinstance(autoname, str):
             continue
         
-        # Parse formats like 'PREFIX-.#####'
         match = re.match(r'^([A-Z_]+)[\-./]', autoname, re.IGNORECASE)
         if match:
             prefix = match.group(1).upper()
             doctype_map[prefix] = doc.name
 
-    # --- THIS IS THE CRITICAL FIX ---
-    # Merge the dynamic map with a hardcoded list of common prefixes to ensure
-    # core DocTypes like 'Project' are always found, even if their naming rule changes.
     hardcoded_map = {
         "PRJ": "Project", "PROJ": "Project", "TASK": "Task",
         "SO": "Sales Order", "PO": "Purchase Order", "QUO": "Quotation",
@@ -99,7 +94,7 @@ def get_dynamic_doctype_map():
     hardcoded_map.update(doctype_map)
     doctype_map = hardcoded_map
 
-    frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600) # Cache for 1 hour
+    frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600)
     return doctype_map
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
@@ -297,7 +292,6 @@ def generate_chat_response(prompt, model=None, conversation=None):
                 if mapped_doctype and frappe.db.exists(mapped_doctype, doc_name):
                     found_doctype = mapped_doctype
             
-            # If prefix matching fails, try some common doctypes by full name
             if not found_doctype:
                 common_doctypes_to_check = ["Customer", "Supplier", "Item", "Project", "Lead", "Opportunity"]
                 for dt in common_doctypes_to_check:
@@ -332,6 +326,8 @@ def generate_chat_response(prompt, model=None, conversation=None):
     if full_context:
         final_prompt += f"--- ERPNext Data Context ---\n{full_context}\n"
     
+    # --- THIS IS THE CRITICAL FIX ---
+    # This block was missing, so the fetched Google data was never being used.
     if google_context:
         final_prompt += f"--- Google Workspace Data Context ---\n{google_context}\n"
 
