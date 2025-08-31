@@ -77,24 +77,26 @@ def get_doc_context(prompt):
     
     for doc_name in doc_references:
         doc_name = doc_name.strip()
-        match = re.match(r'([a-zA-Z]+)-', doc_name)
-        if not match:
-            continue
-            
-        prefix = match.group(1).upper()
-        doctype = doctype_map.get(prefix)
+        found_doc = False
+        # Iterate through the known prefixes to find a match
+        for prefix, doctype in doctype_map.items():
+            # Check if the doc_name starts with the prefix (e.g., "SO-")
+            if doc_name.upper().startswith(prefix.upper() + '-'):
+                if frappe.db.exists(doctype, doc_name):
+                    doc = frappe.get_doc(doctype, doc_name)
+                    doc_data = doc.as_dict()
+                    context += f"\n\nContext for document '{doc_name}' (Type: {doctype}):\n"
+                    context += json.dumps(doc_data, indent=2, default=str)
+                    form_url = get_url_to_form(doctype, doc_name)
+                    context += f"\nLink to document: {form_url}"
+                    found_doc = True
+                    break # Stop searching for prefixes once found
         
-        if doctype and frappe.db.exists(doctype, doc_name):
-            doc = frappe.get_doc(doctype, doc_name)
-            doc_data = doc.as_dict()
-            context += f"\n\nContext for document '{doc_name}' (Type: {doctype}):\n"
-            context += json.dumps(doc_data, indent=2, default=str)
-            form_url = get_url_to_form(doctype, doc_name)
-            context += f"\nLink to document: {form_url}"
-        else:
-            context += f"\n\n[System Note: Document '{doc_name}' could not be found. Its prefix '{prefix}' is not a recognized Naming Series prefix.]"
+        if not found_doc:
+            context += f"\n\n[System Note: Document '{doc_name}' could not be found or its prefix is not a recognized Naming Series prefix.]"
             
-    return context, prompt
+    clean_prompt = re.sub(r'@([\w\s.-]+)', '', prompt).strip()
+    return context, clean_prompt
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
 
@@ -276,27 +278,27 @@ def search_calendar(credentials, query):
 def generate_chat_response(prompt, model=None, conversation=None, file_url=None):
     """Main function to handle chat, including document and Google context."""
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
-    erpnext_context, prompt_without_refs = get_doc_context(prompt)
+    erpnext_context, clean_prompt = get_doc_context(prompt)
     google_context = ""
     
     if is_google_integrated():
         creds = get_user_credentials()
         if creds:
-            if re.search(r'\b(email|mail|gmail)\b', prompt.lower()):
-                search_term = prompt_without_refs
+            if re.search(r'\b(email|mail|gmail)\b', clean_prompt.lower()):
+                search_term = clean_prompt
                 google_context += search_gmail(creds, search_term)
-            if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', prompt.lower()):
-                search_term = prompt_without_refs
+            if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', clean_prompt.lower()):
+                search_term = clean_prompt
                 google_context += search_drive(creds, search_term)
-            if re.search(r'\b(calendar|event|meeting)\b', prompt.lower()):
-                search_term = prompt_without_refs
+            if re.search(r'\b(calendar|event|meeting)\b', clean_prompt.lower()):
+                search_term = clean_prompt
                 google_context += search_calendar(creds, search_term)
 
     final_prompt = ""
     if system_instruction:
         final_prompt += f"System Instruction: {system_instruction}\n\n"
 
-    final_prompt += f"User query: {prompt}\n"
+    final_prompt += f"User query: {clean_prompt}\n"
 
     if erpnext_context:
         final_prompt += f"\n--- ERPNext Data Context ---\n{erpnext_context}\n"
