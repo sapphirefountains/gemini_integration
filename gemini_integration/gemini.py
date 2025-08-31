@@ -45,65 +45,48 @@ def generate_text(prompt, model_name=None):
 
 # --- DYNAMIC DOCTYPE REFERENCING (@DOC-NAME) ---
 
-def get_doctype_map_from_naming_series():
-    """Dynamically builds a map of naming series prefixes to DocTypes."""
-    dt_with_series = frappe.get_all("DocType", filters={"naming_rule": "By Naming Series"}, fields=["name"])
-    doctype_map = {}
-    for d in dt_with_series:
-        naming_series = frappe.get_meta(d.name).get_field("naming_series").options
-        if naming_series:
-            raw_prefixes = [s.strip().split('.')[0] for s in naming_series.split('\n') if s.strip()]
-            for prefix in raw_prefixes:
-                clean_prefix = prefix.rstrip('-')
-                doctype_map[clean_prefix.upper()] = d.name
-    return doctype_map
-
-# --- THIS IS THE FIX ---
-# The caching mechanism was not reliably updating when Naming Series settings were
-# changed in the UI. Removing the cache ensures the app always has the latest prefixes.
-def get_cached_doctype_map():
-    """
-    Wrapper function that now directly fetches the doctype map without caching.
-    This ensures that any changes to Naming Series are immediately reflected.
-    """
-    return get_doctype_map_from_naming_series()
-
-def get_doc_context(prompt):
-    """Finds @-references in a prompt and fetches the document content."""
-    doc_references = re.findall(r'@([\w\s.-]+)', prompt)
-    if not doc_references:
-        return "", prompt
-
-    doctype_map = get_cached_doctype_map()
-    context = ""
-    
-    for doc_name in doc_references:
-        doc_name = doc_name.strip()
-        possible_matches = []
-        for prefix, doctype in doctype_map.items():
-            if doc_name.upper().startswith(prefix.upper() + '-'):
-                possible_matches.append({"prefix": prefix, "doctype": doctype})
+def get_doc_context(doctype, docname):
+    """Fetches and formats a document's data for context."""
+    try:
+        doc = frappe.get_doc(doctype, docname)
+        doc_dict = doc.as_dict()
+        context = f"Context for {doctype} '{docname}':\n"
+        # Use json.dumps for a clean, readable format
+        context += json.dumps(doc_dict, indent=2, default=str)
         
-        found_doc = False
-        if possible_matches:
-            best_matches = sorted(possible_matches, key=lambda x: len(x["prefix"]), reverse=True)
-            best_match = best_matches[0]
-            doctype = best_match["doctype"]
+        doc_url = get_url_to_form(doctype, docname)
+        context += f"\n\nLink to document: {doc_url}"
+        return context
+    except frappe.DoesNotExistError:
+        return f"(System: Document '{docname}' of type '{doctype}' not found.)\n"
+    except Exception as e:
+        frappe.log_error(f"Error fetching doc context for {doctype} {docname}: {str(e)}")
+        return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
-            if frappe.db.exists(doctype, doc_name):
-                doc = frappe.get_doc(doctype, doc_name)
-                doc_data = doc.as_dict()
-                context += f"\n\nContext for document '{doc_name}' (Type: {doctype}):\n"
-                context += json.dumps(doc_data, indent=2, default=str)
-                form_url = get_url_to_form(doctype, doc_name)
-                context += f"\nLink to document: {form_url}"
-                found_doc = True
+def get_dynamic_doctype_map():
+    """
+    Builds a map of naming series prefixes to DocTypes by checking the Naming Series
+    DocType and caches the result for one hour.
+    """
+    cache_key = "gemini_doctype_prefix_map"
+    doctype_map = frappe.cache().get_value(cache_key)
+    if doctype_map:
+        return doctype_map
 
-        if not found_doc:
-            context += f"\n\n[System Note: Document '{doc_name}' could not be found or its prefix is not a recognized Naming Series prefix.]"
-            
-    clean_prompt = re.sub(r'@([\w\s.-]+)', '', prompt).strip()
-    return context, clean_prompt
+    doctype_map = {}
+    # Fetch all doctypes that have a naming series field
+    dt_with_series = frappe.get_all("DocType", filters={"naming_rule": "By Naming Series"}, fields=["name"])
+    
+    for d in dt_with_series:
+        meta = frappe.get_meta(d.name)
+        naming_series_field = meta.get_field("naming_series")
+        if naming_series_field and naming_series_field.options:
+            prefixes = [s.strip().split('.')[0] for s in naming_series_field.options.split('\n') if s.strip()]
+            for prefix in prefixes:
+                doctype_map[prefix.upper().rstrip('-')] = d.name
+
+    frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600) # Cache for 1 hour
+    return doctype_map
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
 
@@ -283,41 +266,64 @@ def search_calendar(credentials, query):
 
 # --- MAIN CHAT FUNCTIONALITY ---
 def generate_chat_response(prompt, model=None, conversation=None):
-    """Main function to handle chat, including document and Google context."""
+    """Handles chat interactions, including document references."""
+    
+    # Extract all @-references from the prompt
+    doc_names = re.findall(r'@([\w.-]+)', prompt)
+    full_context = ""
+    
+    if doc_names:
+        doctype_map = get_dynamic_doctype_map()
+        for doc_name in doc_names:
+            doc_name = doc_name.strip()
+            found_doctype = None
+            
+            # Use the reliable prefix matching from the old, working version
+            if '-' in doc_name:
+                prefix = doc_name.split('-')[0].upper()
+                if prefix in doctype_map:
+                    doctype = doctype_map[prefix]
+                    if frappe.db.exists(doctype, doc_name):
+                        found_doctype = doctype
+            
+            if found_doctype:
+                full_context += get_doc_context(found_doctype, doc_name) + "\n\n"
+            else:
+                full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
+
+    # Clean the prompt of @-references before sending to the model
+    clean_prompt = re.sub(r'@([\w.-]+)', '', prompt).strip()
+
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
-    erpnext_context, clean_prompt = get_doc_context(prompt)
     google_context = ""
     
     if is_google_integrated():
         creds = get_user_credentials()
         if creds:
             if re.search(r'\b(email|mail|gmail)\b', clean_prompt.lower()):
-                search_term = clean_prompt
-                google_context += search_gmail(creds, search_term)
+                google_context += search_gmail(creds, clean_prompt)
             if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', clean_prompt.lower()):
-                search_term = clean_prompt
-                google_context += search_drive(creds, search_term)
+                google_context += search_drive(creds, clean_prompt)
             if re.search(r'\b(calendar|event|meeting)\b', clean_prompt.lower()):
-                search_term = clean_prompt
-                google_context += search_calendar(creds, search_term)
+                google_context += search_calendar(creds, clean_prompt)
 
     final_prompt = ""
     if system_instruction:
         final_prompt += f"System Instruction: {system_instruction}\n\n"
+    
+    if full_context:
+        final_prompt += f"--- ERPNext Data Context ---\n{full_context}\n"
+    
+    if google_context:
+        final_prompt += f"--- Google Workspace Data Context ---\n{google_context}\n"
 
     final_prompt += f"User query: {clean_prompt}\n"
-
-    if erpnext_context:
-        final_prompt += f"\n--- ERPNext Data Context ---\n{erpnext_context}\n"
-    if google_context:
-        final_prompt += f"\n--- Google Workspace Data Context ---\n{google_context}\n"
-    
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
 
     return generate_text(final_prompt, model)
 
 
-# --- PROJECT-SPECIFIC FUNCTIONS ---
+# --- PROJECT-SPECIFIC FUNCTIONS (Unaffected by chat changes) ---
 def generate_tasks(project_id, template):
     """Generates a list of tasks for a project using Gemini."""
     if not frappe.db.exists("Project", project_id):
