@@ -315,12 +315,13 @@ def search_calendar(credentials, query):
         return f"An error occurred with Google Calendar: {error}"
 
 def get_drive_file_context(credentials, file_id):
-    """Fetches a Drive file's metadata and content."""
+    """Fetches a Drive file's metadata and content, supporting Shared Drives."""
     try:
         service = build('drive', 'v3', credentials=credentials)
         file_meta = service.files().get(
             fileId=file_id,
-            fields="id, name, webViewLink, modifiedTime, owners, mimeType"
+            fields="id, name, webViewLink, modifiedTime, owners, mimeType",
+            supportsAllDrives=True
         ).execute()
 
         owner = file_meta.get('owners', [{}])[0].get('displayName', 'Unknown Owner')
@@ -334,7 +335,7 @@ def get_drive_file_context(credentials, file_id):
             content_bytes = service.files().export_media(fileId=file_id, mimeType='text/plain').execute()
             content = content_bytes.decode('utf-8')
         elif mime_type == 'text/plain':
-            content_bytes = service.files().get_media(fileId=file_id).execute()
+            content_bytes = service.files().get_media(fileId=file_id, supportsAllDrives=True).execute()
             content = content_bytes.decode('utf-8')
         else:
             content = "(Content preview is not available for this file type.)"
@@ -397,7 +398,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
     """
     
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"+]+)"", prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
@@ -486,7 +487,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += search_drive(creds, search_prompt)
 
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"+]+)"','', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
@@ -551,4 +552,4 @@ def analyze_risks(project_id):
         risks = json.loads(response_text)
         return risks
     except json.JSONDecodeError:
-        return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
+        return {"error": "Failed to parse a JSON response from the AI. Please try again."}
