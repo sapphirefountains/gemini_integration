@@ -398,7 +398,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
     """
     
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"+]+)"", prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
@@ -487,7 +487,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += search_drive(creds, search_prompt)
 
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"+]+)"','', prompt)
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
