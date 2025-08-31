@@ -45,32 +45,31 @@ def generate_text(prompt, model_name=None):
 
 # --- DYNAMIC DOCTYPE REFERENCING (@DOC-NAME) ---
 
-@frappe.whitelist(allow_guest=False, cache_for=3600)
-def get_cached_doctype_map():
-    """Caches the DocType naming series map for 1 hour."""
-    return get_doctype_map_from_naming_series()
-
 def get_doctype_map_from_naming_series():
     """Dynamically builds a map of naming series prefixes to DocTypes."""
-    naming_series_options = frappe.db.sql("SELECT options FROM `tabProperty Setter` WHERE property='naming_series'", as_dict=1)
-    series_list = {opt['options'] for opt in naming_series_options if opt['options']}
-    
+    # This is a simplified approach. A more robust solution would parse naming series more carefully.
+    dt_with_series = frappe.get_all("DocType", filters={"naming_rule": "By Naming Series"}, fields=["name"])
     doctype_map = {}
-    for series_string in series_list:
-        series_options = series_string.split('\n')
-        for option in series_options:
-            if '.' in option:
-                prefix = option.split('.')[0]
-                # Query for the DocType that uses this naming_series
-                dt = frappe.db.sql("""SELECT parent FROM `tabProperty Setter` 
-                                      WHERE property='naming_series' AND options LIKE %s""", f"%{prefix}.%", as_dict=1)
-                if dt:
-                    doctype_map[prefix.upper()] = dt[0]['parent']
+    for d in dt_with_series:
+        naming_series = frappe.get_meta(d.name).get_field("naming_series").options
+        if naming_series:
+            prefixes = [s.strip().split('.')[0] for s in naming_series.split('\n') if s.strip()]
+            for prefix in prefixes:
+                doctype_map[prefix.upper()] = d.name
     return doctype_map
+
+def get_cached_doctype_map():
+    """Caches the DocType naming series map for 1 hour."""
+    cache_key = "gemini_doctype_map"
+    cached_map = frappe.cache().get(cache_key)
+    if not cached_map:
+        cached_map = get_doctype_map_from_naming_series()
+        frappe.cache().set(cache_key, cached_map, expires_in_sec=3600)
+    return cached_map
 
 def get_doc_context(prompt):
     """Finds @-references in a prompt and fetches the document content."""
-    doc_references = re.findall(r'@([\w\s-]+)', prompt)
+    doc_references = re.findall(r'@([\w\s.-]+)', prompt)
     if not doc_references:
         return "", prompt
 
@@ -79,8 +78,12 @@ def get_doc_context(prompt):
     
     for doc_name in doc_references:
         doc_name = doc_name.strip()
-        prefix = doc_name.split('-')[0].upper()
-        
+        # Handle prefixes like 'PRJ-' or 'SO-'
+        match = re.match(r'([a-zA-Z]+)-', doc_name)
+        if not match:
+            continue
+            
+        prefix = match.group(1).upper()
         doctype = doctype_map.get(prefix)
         
         if doctype and frappe.db.exists(doctype, doc_name):
@@ -91,7 +94,7 @@ def get_doc_context(prompt):
             form_url = get_url_to_form(doctype, doc_name)
             context += f"\nLink to document: {form_url}"
         else:
-            context += f"\n\n[System Note: Document '{doc_name}' could not be found or its DocType is not recognized.]"
+            context += f"\n\n[System Note: Document '{doc_name}' could not be found. Its prefix '{prefix}' is not a recognized Naming Series prefix.]"
             
     return context, prompt
 
@@ -244,7 +247,7 @@ def search_calendar(credentials, query):
     """Searches user's Google Calendar for future events and returns a context string."""
     try:
         service = build('calendar', 'v3', credentials=credentials)
-        now = datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
+        now = datetime.utcnow().isoformat() + 'Z'
         events_result = service.events().list(
             calendarId='primary',
             q=query,
