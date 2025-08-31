@@ -33,7 +33,7 @@ def generate_text(prompt, model_name=None):
         frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
     if not model_name:
-        model_name = frappe.db.get_single_value("Gemini Settings", "model") or "gemini-1.5-flash"
+        model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-flash"
     
     try:
         model_instance = genai.GenerativeModel(model_name)
@@ -52,9 +52,12 @@ def get_doctype_map_from_naming_series():
     for d in dt_with_series:
         naming_series = frappe.get_meta(d.name).get_field("naming_series").options
         if naming_series:
-            prefixes = [s.strip().split('.')[0] for s in naming_series.split('\n') if s.strip()]
-            for prefix in prefixes:
-                doctype_map[prefix.upper()] = d.name
+            raw_prefixes = [s.strip().split('.')[0] for s in naming_series.split('\n') if s.strip()]
+            for prefix in raw_prefixes:
+                # --- THIS IS THE FIX ---
+                # Standardize the prefix by removing trailing hyphens before storing.
+                clean_prefix = prefix.rstrip('-')
+                doctype_map[clean_prefix.upper()] = d.name
     return doctype_map
 
 def get_cached_doctype_map():
@@ -77,18 +80,14 @@ def get_doc_context(prompt):
     
     for doc_name in doc_references:
         doc_name = doc_name.strip()
-        
-        # --- THIS IS THE FIX ---
-        # Find all possible doctypes that match the prefix, then choose the longest one.
-        # This prevents 'TASK-' from matching a document named 'PROJECT-TASK-001'.
         possible_matches = []
         for prefix, doctype in doctype_map.items():
+            # The checker now reliably adds a hyphen to a clean, standardized prefix
             if doc_name.upper().startswith(prefix.upper() + '-'):
                 possible_matches.append({"prefix": prefix, "doctype": doctype})
         
         found_doc = False
         if possible_matches:
-            # Sort by the length of the prefix, longest first
             best_matches = sorted(possible_matches, key=lambda x: len(x["prefix"]), reverse=True)
             best_match = best_matches[0]
             doctype = best_match["doctype"]
@@ -101,7 +100,6 @@ def get_doc_context(prompt):
                 form_url = get_url_to_form(doctype, doc_name)
                 context += f"\nLink to document: {form_url}"
                 found_doc = True
-        # --- END OF FIX ---
 
         if not found_doc:
             context += f"\n\n[System Note: Document '{doc_name}' could not be found or its prefix is not a recognized Naming Series prefix.]"
@@ -286,7 +284,7 @@ def search_calendar(credentials, query):
 
 
 # --- MAIN CHAT FUNCTIONALITY ---
-def generate_chat_response(prompt, model=None, conversation=None, file_url=None):
+def generate_chat_response(prompt, model=None, conversation=None):
     """Main function to handle chat, including document and Google context."""
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     erpnext_context, clean_prompt = get_doc_context(prompt)
@@ -317,29 +315,6 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
         final_prompt += f"\n--- Google Workspace Data Context ---\n{google_context}\n"
     
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
-    
-    # Handle file attachments for vision model
-    if file_url:
-        try:
-            file_doc = frappe.get_doc("File", {"file_url": file_url})
-            file_path = file_doc.get_full_path()
-            
-            import mimetypes
-            mime_type, _ = mimetypes.guess_type(file_path)
-            
-            with open(file_path, "rb") as f:
-                image_part = {
-                    "mime_type": mime_type,
-                    "data": f.read()
-                }
-            
-            model_instance = genai.GenerativeModel('gemini-1.5-flash')
-            response = model_instance.generate_content([final_prompt, image_part])
-            return response.text
-
-        except Exception as e:
-            frappe.log_error(f"Error processing file attachment: {e}", "Gemini Integration")
-            return "Sorry, I encountered an error processing the attached file."
 
     return generate_text(final_prompt, model)
 
