@@ -26,7 +26,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             </div>
 			<div class="chat-history"></div>
 			<div class="chat-input-area">
-				<textarea class="form-control" rows="2" placeholder="Type your message..."></textarea>
+				<textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
 				<button class="btn btn-primary send-btn">Send</button>
 			</div>
 		</div>
@@ -135,7 +135,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 let html = converter.makeHtml(text);
                 bubble.html(html);
             } else {
-                bubble.text(text); // Fallback to plain text if showdown isn't loaded
+                bubble.text(text);
             }
         }
         
@@ -144,7 +144,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         conversation.push({role: role, text: text});
     };
     
-    // Use the standard, robust method for adding an external script
     let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
     let script = document.createElement('script');
     script.type = 'text/javascript';
@@ -152,9 +151,13 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     document.head.appendChild(script);
 
     send_btn.on('click', send_message);
-    chat_input.on('keypress', function(e) {
-        if (e.which === 13 && !e.shiftKey) {
-            e.preventDefault();
+
+    // --- THIS IS THE FIX for the Enter key ---
+    // Use 'keydown' to better handle modifier keys like Shift.
+    chat_input.on('keydown', function(e) {
+        // Only send the message if Shift and Enter are pressed together.
+        if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault(); // Prevent default action (like adding a newline)
             send_message();
         }
     });
