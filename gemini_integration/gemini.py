@@ -310,8 +310,22 @@ def generate_chat_response(prompt, model=None, conversation=None):
     
     references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
+
+    if not doc_names:
+        doctype_map = get_dynamic_doctype_map()
+        prefixes = list(doctype_map.keys())
+        if prefixes:
+            pattern = r'\b(' + '|'.join(re.escape(p) for p in prefixes) + r')-[\w\d-]+'
+            potential_ids = re.findall(pattern, prompt, re.IGNORECASE)
+            if potential_ids:
+                suggestions = [f"@{pid}" for pid in potential_ids]
+                suggestion_str = ", ".join(suggestions)
+                return (
+                    f"To ensure I pull the correct data from ERPNext, please use the '@' symbol before any document ID. "
+                    f"For example, try asking: 'What is the current status of {suggestion_str}?'"
+                )
+
     full_context = ""
-    
     if doc_names:
         doctype_map = get_dynamic_doctype_map()
         all_doctype_names = [d.name for d in frappe.get_all("DocType")]
