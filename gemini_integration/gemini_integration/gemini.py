@@ -303,6 +303,53 @@ def search_calendar(credentials, query):
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
 
+def get_drive_file_context(credentials, file_id):
+    """Fetches and formats a specific Google Drive file's data for context."""
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        file_meta = service.files().get(
+            fileId=file_id,
+            fields="id, name, webViewLink, modifiedTime, owners"
+        ).execute()
+
+        owner = file_meta.get('owners', [{}])[0].get('displayName', 'Unknown Owner')
+        
+        context = "Context for Google Drive File:\n"
+        context += f"- Name: {file_meta.get('name', 'Untitled')}\n"
+        context += f"- Last Modified: {file_meta.get('modifiedTime', 'Unknown')}\n"
+        context += f"- Owner: {owner}\n"
+        context += f"- Link: {file_meta.get('webViewLink', 'Link not available')}\n"
+        return context
+    except HttpError as error:
+        return f"An error occurred while fetching Google Drive file {file_id}: {error}\n"
+    except Exception as e:
+        frappe.log_error(f"Error fetching drive file context for {file_id}: {str(e)}")
+        return f"(System: Could not retrieve context for Google Drive file {file_id}.)\n"
+
+def get_gmail_message_context(credentials, message_id):
+    """Fetches and formats a specific Gmail message's data for context."""
+    try:
+        service = build('gmail', 'v1', credentials=credentials)
+        msg_data = service.users().messages().get(
+            userId='me', id=message_id, format='metadata',
+            metadataHeaders=['From', 'To', 'Subject', 'Date']
+        ).execute()
+
+        headers = {h['name']: h['value'] for h in msg_data['payload']['headers']}
+        link = f"https://mail.google.com/mail/#all/{msg_data['threadId']}"
+
+        context = "Context for Gmail Message:\n"
+        context += f"- From: {headers.get('From', 'N/A')}\n"
+        context += f"- To: {headers.get('To', 'N/A')}\n"
+        context += f"- Subject: {headers.get('Subject', 'No Subject')}\n"
+        context += f"- Date: {headers.get('Date', 'N/A')}\n"
+        context += f"- Link: {link}\n"
+        return context
+    except HttpError as error:
+        return f"An error occurred while fetching Gmail message {message_id}: {error}\n"
+    except Exception as e:
+        frappe.log_error(f"Error fetching gmail context for {message_id}: {str(e)}")
+        return f"(System: Could not retrieve context for Gmail message {message_id}.)\n"
 
 # --- MAIN CHAT FUNCTIONALITY ---
 def generate_chat_response(prompt, model=None, conversation=None):
@@ -351,32 +398,47 @@ def generate_chat_response(prompt, model=None, conversation=None):
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt).strip()
-
-    system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     google_context = ""
-    
+    creds = None
     if is_google_integrated():
         creds = get_user_credentials()
-        if creds:
-            gmail_triggered = re.search(r'\b(email|mail|gmail)\b', prompt.lower())
-            drive_triggered = re.search(r'\b(drive|file|doc|document|sheet|slide)\b', prompt.lower())
-            calendar_triggered = re.search(r'\b(calendar|event|meeting)\b', prompt.lower())
 
-            if gmail_triggered:
-                google_context += search_gmail(creds, clean_prompt)
-            
-            if drive_triggered:
-                google_context += search_drive(creds, clean_prompt)
+    if creds:
+        gdrive_refs = re.findall(r'@gdrive/([\w-]+)', prompt)
+        gmail_refs = re.findall(r'@gmail/([\w-]+)', prompt)
 
-            if calendar_triggered:
-                google_context += search_calendar(creds, clean_prompt)
+        for file_id in gdrive_refs:
+            google_context += get_drive_file_context(creds, file_id) + "\n\n"
 
-            if not any([gmail_triggered, drive_triggered, calendar_triggered]):
-                google_context += search_gmail(creds, clean_prompt)
-                google_context += "\n"
-                google_context += search_drive(creds, clean_prompt)
+        for msg_id in gmail_refs:
+            google_context += get_gmail_message_context(creds, msg_id) + "\n\n"
 
+        search_prompt = re.sub(r'@gdrive/[\w-]+', '', prompt).strip()
+        search_prompt = re.sub(r'@gmail/[\w-]+', '', search_prompt).strip()
+
+        gmail_triggered = re.search(r'\b(email|mail|gmail)\b', search_prompt.lower())
+        drive_triggered = re.search(r'\b(drive|file|doc|document|sheet|slide)\b', search_prompt.lower())
+        calendar_triggered = re.search(r'\b(calendar|event|meeting)\b', search_prompt.lower())
+
+        if gmail_triggered:
+            google_context += search_gmail(creds, search_prompt)
+        
+        if drive_triggered:
+            google_context += search_drive(creds, search_prompt)
+
+        if calendar_triggered:
+            google_context += search_calendar(creds, search_prompt)
+
+        if not any([gmail_triggered, drive_triggered, calendar_triggered, gdrive_refs, gmail_refs]):
+            google_context += search_gmail(creds, search_prompt)
+            google_context += "\n"
+            google_context += search_drive(creds, search_prompt)
+
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
+    clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
+    clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
+
+    system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     final_prompt = ""
     if system_instruction:
         final_prompt += f"System Instruction: {system_instruction}\n\n"
