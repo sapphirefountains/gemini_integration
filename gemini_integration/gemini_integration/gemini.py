@@ -54,20 +54,19 @@ def get_doctype_map_from_naming_series():
         if naming_series:
             raw_prefixes = [s.strip().split('.')[0] for s in naming_series.split('\n') if s.strip()]
             for prefix in raw_prefixes:
-                # --- THIS IS THE FIX ---
-                # Standardize the prefix by removing trailing hyphens before storing.
                 clean_prefix = prefix.rstrip('-')
                 doctype_map[clean_prefix.upper()] = d.name
     return doctype_map
 
+# --- THIS IS THE FIX ---
+# The caching mechanism was not reliably updating when Naming Series settings were
+# changed in the UI. Removing the cache ensures the app always has the latest prefixes.
 def get_cached_doctype_map():
-    """Caches the DocType naming series map for 1 hour."""
-    cache_key = "gemini_doctype_map"
-    cached_map = frappe.cache().get_value(cache_key)
-    if not cached_map:
-        cached_map = get_doctype_map_from_naming_series()
-        frappe.cache().set_value(cache_key, cached_map, expires_in_sec=3600)
-    return cached_map
+    """
+    Wrapper function that now directly fetches the doctype map without caching.
+    This ensures that any changes to Naming Series are immediately reflected.
+    """
+    return get_doctype_map_from_naming_series()
 
 def get_doc_context(prompt):
     """Finds @-references in a prompt and fetches the document content."""
@@ -82,7 +81,6 @@ def get_doc_context(prompt):
         doc_name = doc_name.strip()
         possible_matches = []
         for prefix, doctype in doctype_map.items():
-            # The checker now reliably adds a hyphen to a clean, standardized prefix
             if doc_name.upper().startswith(prefix.upper() + '-'):
                 possible_matches.append({"prefix": prefix, "doctype": doctype})
         
