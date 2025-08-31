@@ -51,8 +51,10 @@ def get_doc_context(doctype, docname):
         doc = frappe.get_doc(doctype, docname)
         doc_dict = doc.as_dict()
         context = f"Context for {doctype} '{docname}':\n"
+        # Loop through the document dictionary and format the data for readability.
+        # Child tables (lists) are excluded for brevity.
         for field, value in doc_dict.items():
-            if value and not isinstance(value, list): # Exclude child tables for brevity
+            if value and not isinstance(value, list):
                 context += f"- {field}: {value}\n"
         
         doc_url = get_url_to_form(doctype, docname)
@@ -65,7 +67,11 @@ def get_doc_context(doctype, docname):
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
 def get_dynamic_doctype_map():
-    """Builds a map of naming series prefixes to DocTypes."""
+    """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
+    
+    This is used to quickly identify the DocType of a referenced document ID.
+    It combines dynamically found prefixes with a hardcoded list for common cases.
+    """
     cache_key = "gemini_doctype_prefix_map"
     doctype_map = frappe.cache().get_value(cache_key)
     if doctype_map:
@@ -74,6 +80,7 @@ def get_dynamic_doctype_map():
     doctype_map = {}
     all_doctypes = frappe.get_all("DocType", fields=["name", "autoname"])
 
+    # Dynamically build the map from DocType autoname properties
     for doc in all_doctypes:
         autoname = doc.get("autoname")
         if not autoname or not isinstance(autoname, str):
@@ -84,6 +91,8 @@ def get_dynamic_doctype_map():
             prefix = match.group(1).upper()
             doctype_map[prefix] = doc.name
 
+    # Add a hardcoded map as a fallback for common or non-standard naming series.
+    # The dynamic map takes precedence.
     hardcoded_map = {
         "PRJ": "Project", "PROJ": "Project", "TASK": "Task",
         "SO": "Sales Order", "PO": "Purchase Order", "QUO": "Quotation",
@@ -93,7 +102,7 @@ def get_dynamic_doctype_map():
     hardcoded_map.update(doctype_map)
     doctype_map = hardcoded_map
 
-    frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600)
+    frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600) # Cache for 1 hour
     return doctype_map
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
@@ -106,7 +115,7 @@ def get_google_settings():
     return settings
 
 def get_google_flow():
-    """Builds the Google OAuth 2.0 Flow object."""
+    """Builds the Google OAuth 2.0 Flow object for authentication."""
     settings = get_google_settings()
     redirect_uri = get_site_url(frappe.local.site) + "/api/method/gemini_integration.api.handle_google_callback"
     client_secrets = {
@@ -117,6 +126,7 @@ def get_google_flow():
             "token_uri": "https://oauth2.googleapis.com/token",
         }
     }
+    # Scopes define the level of access to the user's Google data.
     scopes = [
         "https://www.googleapis.com/auth/userinfo.email", "openid",
         "https://www.googleapis.com/auth/gmail.readonly",
@@ -126,14 +136,15 @@ def get_google_flow():
     return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
 
 def get_google_auth_url():
-    """Generates the authorization URL for the user to click."""
+    """Generates the authorization URL for the user to grant consent."""
     flow = get_google_flow()
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
+    # Store the state in cache to prevent CSRF attacks.
     frappe.cache().set_value(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
     return authorization_url
 
 def process_google_callback(code, state, error):
-    """Exchanges the authorization code for tokens and stores them."""
+    """Handles the OAuth callback from Google, exchanges the code for tokens, and stores them."""
     if error:
         frappe.log_error(f"Google OAuth Error: {error}", "Gemini Integration")
         frappe.respond_as_web_page("Google Authentication Failed", f"An error occurred: {error}", http_status_code=401)
@@ -150,10 +161,12 @@ def process_google_callback(code, state, error):
         flow.fetch_token(code=code)
         creds = flow.credentials
 
+        # Get user's email to store alongside the token for reference.
         userinfo_service = build('oauth2', 'v2', credentials=creds)
         user_info = userinfo_service.userinfo().get().execute()
         google_email = user_info.get('email')
 
+        # Create or update the Google User Token document for the current user.
         if frappe.db.exists("Google User Token", {"user": frappe.session.user}):
             token_doc = frappe.get_doc("Google User Token", {"user": frappe.session.user})
         else:
@@ -173,6 +186,7 @@ def process_google_callback(code, state, error):
         frappe.respond_as_web_page("Error", "An unexpected error occurred while saving your credentials.", http_status_code=500)
         return
 
+    # Show a success page to the user.
     frappe.respond_as_web_page(
         "Successfully Connected!",
         """<div style='text-align: center; padding: 40px;'>
@@ -187,7 +201,7 @@ def is_google_integrated():
     return frappe.db.exists("Google User Token", {"user": frappe.session.user})
 
 def get_user_credentials():
-    """Retrieves stored credentials for the current user."""
+    """Retrieves stored credentials for the current user from the database."""
     if not is_google_integrated():
         return None
     try:
@@ -204,12 +218,10 @@ def get_user_credentials():
         frappe.log_error(f"Could not get user credentials: {e}", "Gemini Integration")
         return None
 
-# --- GOOGLE SERVICE SEARCH FUNCTIONS ---
+# --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
+
 def search_gmail(credentials, query):
-    """
-    If a specific query is provided, searches for it. Otherwise, lists the most
-    recent emails.
-    """
+    """Searches Gmail for a query or lists recent emails."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
         search_query = query if query.strip() else 'in:inbox'
@@ -230,10 +242,7 @@ def search_gmail(credentials, query):
         return f"An error occurred with Gmail: {error}"
 
 def search_drive(credentials, query):
-    """
-    If a specific query is provided, searches for it. Otherwise, lists the most
-    recently modified files in all drives.
-    """
+    """Searches Google Drive for a query or lists recent files."""
     try:
         service = build('drive', 'v3', credentials=credentials)
         
@@ -263,7 +272,7 @@ def search_drive(credentials, query):
         return f"An error occurred with Google Drive: {error}"
 
 def search_calendar(credentials, query):
-    """Lists events in the next 7 days across all accessible calendars."""
+    """Lists upcoming calendar events for the next 7 days."""
     try:
         service = build('calendar', 'v3', credentials=credentials)
         now = datetime.utcnow()
@@ -336,6 +345,7 @@ def get_gmail_message_context(credentials, message_id):
         ).execute()
 
         headers = {h['name']: h['value'] for h in msg_data['payload']['headers']}
+        # Construct a direct link to the email within its thread.
         link = f"https://mail.google.com/mail/#all/{msg_data['threadId']}"
 
         context = "Context for Gmail Message:\n"
@@ -353,15 +363,28 @@ def get_gmail_message_context(credentials, message_id):
 
 # --- MAIN CHAT FUNCTIONALITY ---
 def generate_chat_response(prompt, model=None, conversation=None):
-    """Handles chat interactions, including document references."""
+    """Handles chat interactions by assembling context from ERPNext and Google Workspace.
     
+    The process is as follows:
+    1. Look for explicit ERPNext doc references (e.g., @CUST-0001).
+    2. If none, check for things that look like doc IDs but are missing the '@' and guide the user.
+    3. Look for explicit Google Workspace references (e.g., @gdrive/file_id).
+    4. Perform keyword-based or general searches in Google Workspace.
+    5. Assemble all gathered context into a final prompt for the AI.
+    6. Clean all reference syntax from the prompt before sending.
+    """
+    
+    # 1. Find all ERPNext document references starting with '@'
     references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
+    # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
+    # This prevents hallucinations by catching mistakes and guiding the user.
     if not doc_names:
         doctype_map = get_dynamic_doctype_map()
         prefixes = list(doctype_map.keys())
         if prefixes:
+            # Regex to find patterns like 'PRJ-00123' based on known prefixes.
             pattern = r'\b(' + '|'.join(re.escape(p) for p in prefixes) + r')-[\w\d-]+'
             potential_ids = re.findall(pattern, prompt, re.IGNORECASE)
             if potential_ids:
@@ -372,6 +395,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
                     f"For example, try asking: 'What is the current status of {suggestion_str}?'"
                 )
 
+    # 3. Gather context from all found ERPNext references.
     full_context = ""
     if doc_names:
         doctype_map = get_dynamic_doctype_map()
@@ -398,12 +422,14 @@ def generate_chat_response(prompt, model=None, conversation=None):
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
+    # 4. Gather context from Google Workspace.
     google_context = ""
     creds = None
     if is_google_integrated():
         creds = get_user_credentials()
 
     if creds:
+        # 4a. Look for direct references like @gdrive/file_id or @gmail/message_id
         gdrive_refs = re.findall(r'@gdrive/([\w-]+)', prompt)
         gmail_refs = re.findall(r'@gmail/([\w-]+)', prompt)
 
@@ -413,6 +439,8 @@ def generate_chat_response(prompt, model=None, conversation=None):
         for msg_id in gmail_refs:
             google_context += get_gmail_message_context(creds, msg_id) + "\n\n"
 
+        # 4b. Perform keyword-based or general searches for any text not part of a direct reference.
+        # This avoids searching for "@gdrive/123" if it was already handled.
         search_prompt = re.sub(r'@gdrive/[\w-]+', '', prompt).strip()
         search_prompt = re.sub(r'@gmail/[\w-]+', '', search_prompt).strip()
 
@@ -429,15 +457,18 @@ def generate_chat_response(prompt, model=None, conversation=None):
         if calendar_triggered:
             google_context += search_calendar(creds, search_prompt)
 
+        # 4c. If no specific keywords or direct links were used, perform a general search.
         if not any([gmail_triggered, drive_triggered, calendar_triggered, gdrive_refs, gmail_refs]):
             google_context += search_gmail(creds, search_prompt)
             google_context += "\n"
             google_context += search_drive(creds, search_prompt)
 
+    # 5. Clean the prompt of all reference syntax before sending it to the AI.
     clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
+    # 6. Assemble the final prompt with all context.
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     final_prompt = ""
     if system_instruction:
