@@ -3,6 +3,7 @@ import google.generativeai as genai
 from frappe.utils import get_url_to_form, get_site_url
 import re
 import json
+import base64
 from datetime import datetime, timedelta
 
 # Google API Imports
@@ -221,7 +222,7 @@ def get_user_credentials():
 # --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
 
 def search_gmail(credentials, query):
-    """Searches Gmail for a query or lists recent emails."""
+    """Searches Gmail for a query and returns message subjects and snippets."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
         search_query = query if query.strip() else 'in:inbox'
@@ -234,9 +235,10 @@ def search_gmail(credentials, query):
             return "No recent emails found matching your query."
             
         for msg in messages:
-            msg_data = service.users().messages().get(userId='me', id=msg['id'], format='metadata', metadataHeaders=['From', 'Subject', 'Date']).execute()
-            headers = {h['name']: h['value'] for h in msg_data['payload']['headers']}
-            email_context += f"- From: {headers.get('From')}, Subject: {headers.get('Subject')}, Date: {headers.get('Date')}\n"
+            msg_data = service.users().messages().get(userId='me', id=msg['id'], format='metadata', metadataHeaders=['Subject']).execute()
+            subject = next((h['value'] for h in msg_data['payload']['headers'] if h['name'] == 'Subject'), 'No Subject')
+            snippet = msg_data.get('snippet', '')
+            email_context += f"- Subject: {subject}\n  Snippet: {snippet}\n"
         return email_context
     except HttpError as error:
         return f"An error occurred with Gmail: {error}"
@@ -313,21 +315,32 @@ def search_calendar(credentials, query):
         return f"An error occurred with Google Calendar: {error}"
 
 def get_drive_file_context(credentials, file_id):
-    """Fetches and formats a specific Google Drive file's data for context."""
+    """Fetches a Drive file's metadata and content."""
     try:
         service = build('drive', 'v3', credentials=credentials)
         file_meta = service.files().get(
             fileId=file_id,
-            fields="id, name, webViewLink, modifiedTime, owners"
+            fields="id, name, webViewLink, modifiedTime, owners, mimeType"
         ).execute()
 
         owner = file_meta.get('owners', [{}])[0].get('displayName', 'Unknown Owner')
-        
-        context = "Context for Google Drive File:\n"
-        context += f"- Name: {file_meta.get('name', 'Untitled')}\n"
-        context += f"- Last Modified: {file_meta.get('modifiedTime', 'Unknown')}\n"
-        context += f"- Owner: {owner}\n"
+        context = f"Context for Google Drive File: {file_meta.get('name', 'Untitled')}\n"
         context += f"- Link: {file_meta.get('webViewLink', 'Link not available')}\n"
+
+        mime_type = file_meta.get('mimeType', '')
+        content = ""
+
+        if 'google-apps.document' in mime_type:
+            content_bytes = service.files().export_media(fileId=file_id, mimeType='text/plain').execute()
+            content = content_bytes.decode('utf-8')
+        elif mime_type == 'text/plain':
+            content_bytes = service.files().get_media(fileId=file_id).execute()
+            content = content_bytes.decode('utf-8')
+        else:
+            content = "(Content preview is not available for this file type.)"
+
+        # Truncate content to avoid excessive length
+        context += f"Content Snippet:\n{content[:3000]}"
         return context
     except HttpError as error:
         return f"An error occurred while fetching Google Drive file {file_id}: {error}\n"
@@ -336,24 +349,33 @@ def get_drive_file_context(credentials, file_id):
         return f"(System: Could not retrieve context for Google Drive file {file_id}.)\n"
 
 def get_gmail_message_context(credentials, message_id):
-    """Fetches and formats a specific Gmail message's data for context."""
+    """Fetches a specific Gmail message's headers and body."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
-        msg_data = service.users().messages().get(
-            userId='me', id=message_id, format='metadata',
-            metadataHeaders=['From', 'To', 'Subject', 'Date']
-        ).execute()
+        msg_data = service.users().messages().get(userId='me', id=message_id, format='full').execute()
 
         headers = {h['name']: h['value'] for h in msg_data['payload']['headers']}
-        # Construct a direct link to the email within its thread.
         link = f"https://mail.google.com/mail/#all/{msg_data['threadId']}"
+        
+        content = "(Could not extract email body.)"
+        payload = msg_data.get('payload', {})
+        if 'parts' in payload:
+            for part in payload['parts']:
+                if part['mimeType'] == 'text/plain':
+                    data = part['body'].get('data')
+                    if data:
+                        content = base64.urlsafe_b64decode(data).decode('utf-8')
+                    break
+        else:
+            data = payload.get('body', {}).get('data')
+            if data:
+                content = base64.urlsafe_b64decode(data).decode('utf-8')
 
         context = "Context for Gmail Message:\n"
-        context += f"- From: {headers.get('From', 'N/A')}\n"
-        context += f"- To: {headers.get('To', 'N/A')}\n"
         context += f"- Subject: {headers.get('Subject', 'No Subject')}\n"
-        context += f"- Date: {headers.get('Date', 'N/A')}\n"
+        context += f"- From: {headers.get('From', 'N/A')}\n"
         context += f"- Link: {link}\n"
+        context += f"Body Snippet:\n{content[:3000]}"
         return context
     except HttpError as error:
         return f"An error occurred while fetching Gmail message {message_id}: {error}\n"
@@ -375,7 +397,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
     """
     
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
@@ -464,7 +486,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += search_drive(creds, search_prompt)
 
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
