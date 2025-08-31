@@ -33,7 +33,7 @@ def generate_text(prompt, model_name=None):
         frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
     if not model_name:
-        model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-flash"
+        model_name = frappe.db.get_single_value("Gemini Settings", "model") or "gemini-1.5-flash"
     
     try:
         model_instance = genai.GenerativeModel(model_name)
@@ -77,21 +77,32 @@ def get_doc_context(prompt):
     
     for doc_name in doc_references:
         doc_name = doc_name.strip()
-        found_doc = False
-        # Iterate through the known prefixes to find a match
-        for prefix, doctype in doctype_map.items():
-            # Check if the doc_name starts with the prefix (e.g., "SO-")
-            if doc_name.upper().startswith(prefix.upper() + '-'):
-                if frappe.db.exists(doctype, doc_name):
-                    doc = frappe.get_doc(doctype, doc_name)
-                    doc_data = doc.as_dict()
-                    context += f"\n\nContext for document '{doc_name}' (Type: {doctype}):\n"
-                    context += json.dumps(doc_data, indent=2, default=str)
-                    form_url = get_url_to_form(doctype, doc_name)
-                    context += f"\nLink to document: {form_url}"
-                    found_doc = True
-                    break # Stop searching for prefixes once found
         
+        # --- THIS IS THE FIX ---
+        # Find all possible doctypes that match the prefix, then choose the longest one.
+        # This prevents 'TASK-' from matching a document named 'PROJECT-TASK-001'.
+        possible_matches = []
+        for prefix, doctype in doctype_map.items():
+            if doc_name.upper().startswith(prefix.upper() + '-'):
+                possible_matches.append({"prefix": prefix, "doctype": doctype})
+        
+        found_doc = False
+        if possible_matches:
+            # Sort by the length of the prefix, longest first
+            best_matches = sorted(possible_matches, key=lambda x: len(x["prefix"]), reverse=True)
+            best_match = best_matches[0]
+            doctype = best_match["doctype"]
+
+            if frappe.db.exists(doctype, doc_name):
+                doc = frappe.get_doc(doctype, doc_name)
+                doc_data = doc.as_dict()
+                context += f"\n\nContext for document '{doc_name}' (Type: {doctype}):\n"
+                context += json.dumps(doc_data, indent=2, default=str)
+                form_url = get_url_to_form(doctype, doc_name)
+                context += f"\nLink to document: {form_url}"
+                found_doc = True
+        # --- END OF FIX ---
+
         if not found_doc:
             context += f"\n\n[System Note: Document '{doc_name}' could not be found or its prefix is not a recognized Naming Series prefix.]"
             
