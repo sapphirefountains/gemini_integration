@@ -1,6 +1,6 @@
 import frappe
 import google.generativeai as genai
-from frappe.utils import get_url_to_form, get_site_url, get_request_header
+from frappe.utils import get_url_to_form, get_site_url
 import re
 import json
 from datetime import datetime, timedelta
@@ -171,7 +171,6 @@ def process_google_callback(code, state, error):
         frappe.respond_as_web_page("Error", "An unexpected error occurred while saving your credentials.", http_status_code=500)
         return
 
-    # Using frappe.redirect_to_message as it is more robust
     frappe.utils.redirect_to_message(
         "Successfully Connected!",
         "Your Google Account has been successfully connected. You can now close this tab and return to the Gemini Chat.",
@@ -220,12 +219,53 @@ def search_gmail(credentials, query):
     except HttpError as error:
         return f"An error occurred with Gmail: {error}"
 
-# Placeholder functions for Drive and Calendar
 def search_drive(credentials, query):
-    return "Google Drive search is not yet implemented."
+    """Searches user's Google Drive and returns a context string."""
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        results = service.files().list(
+            q=f"fullText contains '{query}'",
+            pageSize=5,
+            fields="nextPageToken, files(id, name, webViewLink)"
+        ).execute()
+        items = results.get('files', [])
+
+        if not items:
+            return "No files found in Google Drive matching the query."
+        
+        drive_context = "Recent files from Google Drive matching the query:\n"
+        for item in items:
+            drive_context += f"- Name: {item['name']}, Link: {item['webViewLink']}\n"
+        return drive_context
+    except HttpError as error:
+        return f"An error occurred with Google Drive: {error}"
 
 def search_calendar(credentials, query):
-    return "Google Calendar search is not yet implemented."
+    """Searches user's Google Calendar for future events and returns a context string."""
+    try:
+        service = build('calendar', 'v3', credentials=credentials)
+        now = datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
+        events_result = service.events().list(
+            calendarId='primary',
+            q=query,
+            timeMin=now,
+            maxResults=5,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        events = events_result.get('items', [])
+
+        if not events:
+            return "No upcoming calendar events found matching the query."
+        
+        calendar_context = "Upcoming calendar events matching the query:\n"
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            calendar_context += f"- Summary: {event['summary']}, Start: {start}\n"
+        return calendar_context
+    except HttpError as error:
+        return f"An error occurred with Google Calendar: {error}"
+
 
 # --- MAIN CHAT FUNCTIONALITY ---
 def generate_chat_response(prompt, model=None, conversation=None, file_url=None):
@@ -233,12 +273,11 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
     erpnext_context, prompt_without_refs = get_doc_context(prompt)
     google_context = ""
     
-    # Check for Google keywords and fetch context if integrated
     if is_google_integrated():
         creds = get_user_credentials()
         if creds:
             if re.search(r'\b(email|mail|gmail)\b', prompt.lower()):
-                search_term = prompt_without_refs # Use the prompt without the @-references for searching
+                search_term = prompt_without_refs
                 google_context += search_gmail(creds, search_term)
             if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', prompt.lower()):
                 search_term = prompt_without_refs
@@ -247,7 +286,6 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
                 search_term = prompt_without_refs
                 google_context += search_calendar(creds, search_term)
 
-    # Combine all contexts
     final_prompt = f"User query: {prompt}\n"
     if erpnext_context:
         final_prompt += f"\n--- ERPNext Data Context ---\n{erpnext_context}\n"
@@ -256,7 +294,6 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
     
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
     
-    # Use the base generate_text function to call Gemini
     return generate_text(final_prompt, model)
 
 
