@@ -207,15 +207,21 @@ def get_user_credentials():
 
 # --- GOOGLE SERVICE SEARCH FUNCTIONS ---
 def search_gmail(credentials, query):
-    """Searches user's Gmail and returns a context string."""
+    """
+    If a specific query is provided, searches for it. Otherwise, lists the most
+    recent emails.
+    """
     try:
         service = build('gmail', 'v1', credentials=credentials)
-        results = service.users().messages().list(userId='me', q=query, maxResults=5).execute()
+        # If the user provides a search term, use it. Otherwise, list recent mail.
+        search_query = query if query.strip() else 'in:inbox'
+        
+        results = service.users().messages().list(userId='me', q=search_query, maxResults=5).execute()
         messages = results.get('messages', [])
         
-        email_context = "Recent emails matching the query:\n"
+        email_context = "Recent emails matching your query:\n"
         if not messages:
-            return "No recent emails found matching the query."
+            return "No recent emails found matching your query."
             
         for msg in messages:
             msg_data = service.users().messages().get(userId='me', id=msg['id'], format='metadata', metadataHeaders=['From', 'Subject', 'Date']).execute()
@@ -226,23 +232,33 @@ def search_gmail(credentials, query):
         return f"An error occurred with Gmail: {error}"
 
 def search_drive(credentials, query):
-    """Searches user's Google Drive, including Shared Drives."""
+    """
+    If a specific query is provided, searches for it. Otherwise, lists the most
+    recently modified files in all drives.
+    """
     try:
         service = build('drive', 'v3', credentials=credentials)
+        
+        # If the user provides a search term, use it. Otherwise, list recent files.
+        if query.strip():
+            search_params = {'q': f"fullText contains '{query}'"}
+        else:
+            search_params = {'orderBy': 'modifiedTime desc'}
+
         results = service.files().list(
-            q=f"fullText contains '{query}'",
             pageSize=5,
             fields="nextPageToken, files(id, name, webViewLink)",
             corpora='allDrives',
             includeItemsFromAllDrives=True,
-            supportsAllDrives=True
+            supportsAllDrives=True,
+            **search_params
         ).execute()
         items = results.get('files', [])
 
         if not items:
-            return "No files found in Google Drive matching the query."
+            return "No files found in Google Drive matching your query."
         
-        drive_context = "Recent files from Google Drive matching the query:\n"
+        drive_context = "Recent files from Google Drive matching your query:\n"
         for item in items:
             drive_context += f"- Name: {item['name']}, Link: {item['webViewLink']}\n"
         return drive_context
@@ -250,10 +266,14 @@ def search_drive(credentials, query):
         return f"An error occurred with Google Drive: {error}"
 
 def search_calendar(credentials, query):
-    """Searches all of the user's accessible Google Calendars for future events."""
+    """
+    Lists events in the next 7 days across all accessible calendars.
+    """
     try:
         service = build('calendar', 'v3', credentials=credentials)
-        now = datetime.utcnow().isoformat() + 'Z'
+        now = datetime.utcnow()
+        time_min = now.isoformat() + 'Z'
+        time_max = (now + timedelta(days=7)).isoformat() + 'Z'
         
         calendar_list = service.calendarList().list().execute()
         all_events = []
@@ -262,24 +282,24 @@ def search_calendar(credentials, query):
             calendar_id = calendar_list_entry['id']
             events_result = service.events().list(
                 calendarId=calendar_id,
-                q=query,
-                timeMin=now,
-                maxResults=5,
+                timeMin=time_min,
+                timeMax=time_max,
+                maxResults=10,
                 singleEvents=True,
                 orderBy='startTime'
             ).execute()
             all_events.extend(events_result.get('items', []))
 
         if not all_events:
-            return "No upcoming calendar events found matching the query."
+            return "No upcoming calendar events found in the next 7 days."
         
         sorted_events = sorted(all_events, key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
         
-        calendar_context = "Upcoming calendar events matching the query:\n"
-        for event in sorted_events[:5]:
+        calendar_context = "Upcoming calendar events in the next 7 days:\n"
+        for event in sorted_events:
             start = event['start'].get('dateTime', event['start'].get('date'))
-            calendar_name = event.get('organizer', {}).get('displayName', '')
-            calendar_context += f"- Summary: {event['summary']}, Start: {start} (in Calendar: {calendar_name})\n"
+            calendar_name = calendar_list_entry.get('summary', calendar_id)
+            calendar_context += f"- {event['summary']} at {start} (from Calendar: {calendar_name})\n"
         return calendar_context
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
@@ -324,11 +344,11 @@ def generate_chat_response(prompt, model=None, conversation=None):
     if is_google_integrated():
         creds = get_user_credentials()
         if creds:
-            if re.search(r'\b(email|mail|gmail)\b', clean_prompt.lower()):
+            if re.search(r'\b(email|mail|gmail)\b', prompt.lower()):
                 google_context += search_gmail(creds, clean_prompt)
-            if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', clean_prompt.lower()):
+            if re.search(r'\b(drive|file|doc|document|sheet|slide)\b', prompt.lower()):
                 google_context += search_drive(creds, clean_prompt)
-            if re.search(r'\b(calendar|event|meeting)\b', clean_prompt.lower()):
+            if re.search(r'\b(calendar|event|meeting)\b', prompt.lower()):
                 google_context += search_calendar(creds, clean_prompt)
 
     final_prompt = ""
