@@ -34,7 +34,7 @@ def generate_text(prompt, model_name=None):
 
     if not model_name:
         model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-flash"
-    
+
     try:
         model_instance = genai.GenerativeModel(model_name)
         response = model_instance.generate_content(prompt)
@@ -74,16 +74,16 @@ def get_doc_context(prompt):
 
     doctype_map = get_cached_doctype_map()
     context = ""
-    
+
     for doc_name in doc_references:
         doc_name = doc_name.strip()
         match = re.match(r'([a-zA-Z]+)-', doc_name)
         if not match:
             continue
-            
+
         prefix = match.group(1).upper()
         doctype = doctype_map.get(prefix)
-        
+
         if doctype and frappe.db.exists(doctype, doc_name):
             doc = frappe.get_doc(doctype, doc_name)
             doc_data = doc.as_dict()
@@ -93,7 +93,7 @@ def get_doc_context(prompt):
             context += f"\nLink to document: {form_url}"
         else:
             context += f"\n\n[System Note: Document '{doc_name}' could not be found. Its prefix '{prefix}' is not a recognized Naming Series prefix.]"
-            
+
     return context, prompt
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
@@ -173,6 +173,8 @@ def process_google_callback(code, state, error):
         frappe.respond_as_web_page("Error", "An unexpected error occurred while saving your credentials.", http_status_code=500)
         return
 
+    # --- THIS IS THE FIX ---
+    # Use frappe.respond_as_web_page which is compatible with Frappe v15
     frappe.respond_as_web_page(
         "Successfully Connected!",
         """<div style='text-align: center; padding: 40px;'>
@@ -181,6 +183,7 @@ def process_google_callback(code, state, error):
            </div>""",
         indicator_color="green"
     )
+    # --- END OF FIX ---
 
 def is_google_integrated():
     """Checks if a valid token exists for the current user."""
@@ -211,11 +214,11 @@ def search_gmail(credentials, query):
         service = build('gmail', 'v1', credentials=credentials)
         results = service.users().messages().list(userId='me', q=query, maxResults=5).execute()
         messages = results.get('messages', [])
-        
+
         email_context = "Recent emails matching the query:\n"
         if not messages:
             return "No recent emails found matching the query."
-            
+
         for msg in messages:
             msg_data = service.users().messages().get(userId='me', id=msg['id'], format='metadata', metadataHeaders=['From', 'Subject', 'Date']).execute()
             headers = {h['name']: h['value'] for h in msg_data['payload']['headers']}
@@ -237,7 +240,7 @@ def search_drive(credentials, query):
 
         if not items:
             return "No files found in Google Drive matching the query."
-        
+
         drive_context = "Recent files from Google Drive matching the query:\n"
         for item in items:
             drive_context += f"- Name: {item['name']}, Link: {item['webViewLink']}\n"
@@ -262,7 +265,7 @@ def search_calendar(credentials, query):
 
         if not events:
             return "No upcoming calendar events found matching the query."
-        
+
         calendar_context = "Upcoming calendar events matching the query:\n"
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
@@ -277,7 +280,7 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
     """Main function to handle chat, including document and Google context."""
     erpnext_context, prompt_without_refs = get_doc_context(prompt)
     google_context = ""
-    
+
     if is_google_integrated():
         creds = get_user_credentials()
         if creds:
@@ -296,24 +299,24 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
         final_prompt += f"\n--- ERPNext Data Context ---\n{erpnext_context}\n"
     if google_context:
         final_prompt += f"\n--- Google Workspace Data Context ---\n{google_context}\n"
-    
+
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
-    
+
     # Handle file attachments for vision model
     if file_url:
         try:
             file_doc = frappe.get_doc("File", {"file_url": file_url})
             file_path = file_doc.get_full_path()
-            
+
             import mimetypes
             mime_type, _ = mimetypes.guess_type(file_path)
-            
+
             with open(file_path, "rb") as f:
                 image_part = {
                     "mime_type": mime_type,
                     "data": f.read()
                 }
-            
+
             model_instance = genai.GenerativeModel('gemini-1.5-flash')
             response = model_instance.generate_content([final_prompt, image_part])
             return response.text
@@ -330,18 +333,18 @@ def generate_tasks(project_id, template):
     """Generates a list of tasks for a project using Gemini."""
     if not frappe.db.exists("Project", project_id):
         return {"error": "Project not found."}
-    
+
     project = frappe.get_doc("Project", project_id)
     project_details = project.as_dict()
-    
+
     prompt = f"""
     Based on the following project details and the selected template '{template}', generate a list of tasks.
     Project Details: {json.dumps(project_details, indent=2, default=str)}
-    
+
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "subject" and "description".
     Example: [{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}, ...]
     """
-    
+
     response_text = generate_text(prompt)
     try:
         tasks = json.loads(response_text)
@@ -353,22 +356,21 @@ def analyze_risks(project_id):
     """Analyzes a project for potential risks using Gemini."""
     if not frappe.db.exists("Project", project_id):
         return {"error": "Project not found."}
-    
+
     project = frappe.get_doc("Project", project_id)
     project_details = project.as_dict()
-    
+
     prompt = f"""
     Analyze the following project for potential risks (e.g., timeline, budget, scope creep, resource constraints).
     Project Details: {json.dumps(project_details, indent=2, default=str)}
-    
+
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "risk_name" (a short title) and "risk_description".
     Example: [{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}, ...]
     """
-    
+
     response_text = generate_text(prompt)
     try:
         risks = json.loads(response_text)
         return risks
     except json.JSONDecodeError:
         return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
-
