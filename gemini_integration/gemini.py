@@ -63,10 +63,7 @@ def get_cached_doctype_map():
     cached_map = frappe.cache().get_value(cache_key)
     if not cached_map:
         cached_map = get_doctype_map_from_naming_series()
-        # --- THIS IS THE FIX ---
-        # Use frappe.cache().set_value() which is the correct method
         frappe.cache().set_value(cache_key, cached_map, expires_in_sec=3600)
-        # --- END OF FIX ---
     return cached_map
 
 def get_doc_context(prompt):
@@ -132,10 +129,7 @@ def get_google_auth_url():
     """Generates the authorization URL for the user to click."""
     flow = get_google_flow()
     authorization_url, state = flow.authorization_url(access_type='offline', prompt='consent')
-    # --- THIS IS THE FIX ---
-    # Use frappe.cache().set_value() which is the correct method
     frappe.cache().set_value(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
-    # --- END OF FIX ---
     return authorization_url
 
 def process_google_callback(code, state, error):
@@ -179,11 +173,17 @@ def process_google_callback(code, state, error):
         frappe.respond_as_web_page("Error", "An unexpected error occurred while saving your credentials.", http_status_code=500)
         return
 
-    frappe.utils.redirect_to_message(
+    # --- THIS IS THE FIX ---
+    # Use frappe.respond_as_web_page which is compatible with Frappe v15
+    frappe.respond_as_web_page(
         "Successfully Connected!",
-        "Your Google Account has been successfully connected. You can now close this tab and return to the Gemini Chat.",
+        """<div style='text-align: center; padding: 40px;'>
+              <h2>Your Google Account has been successfully connected.</h2>
+              <p>You can now close this tab and return to the Gemini Chat page in ERPNext.</p>
+           </div>""",
         indicator_color="green"
     )
+    # --- END OF FIX ---
 
 def is_google_integrated():
     """Checks if a valid token exists for the current user."""
@@ -302,6 +302,29 @@ def generate_chat_response(prompt, model=None, conversation=None, file_url=None)
     
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
     
+    # Handle file attachments for vision model
+    if file_url:
+        try:
+            file_doc = frappe.get_doc("File", {"file_url": file_url})
+            file_path = file_doc.get_full_path()
+            
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(file_path)
+            
+            with open(file_path, "rb") as f:
+                image_part = {
+                    "mime_type": mime_type,
+                    "data": f.read()
+                }
+            
+            model_instance = genai.GenerativeModel('gemini-1.5-flash')
+            response = model_instance.generate_content([final_prompt, image_part])
+            return response.text
+
+        except Exception as e:
+            frappe.log_error(f"Error processing file attachment: {e}", "Gemini Integration")
+            return "Sorry, I encountered an error processing the attached file."
+
     return generate_text(final_prompt, model)
 
 
