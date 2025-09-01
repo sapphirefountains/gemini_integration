@@ -18,6 +18,13 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
         .google-connect-btn { margin-left: auto; }
 		.search-results { border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; margin-bottom: 16px; background-color: #f9fafb; }
+		.search-result-item { display: flex; align-items: center; gap: 12px; padding: 8px; border-bottom: 1px solid #e5e7eb; }
+		.search-result-item:last-child { border-bottom: none; }
+		.search-result-item img { width: 24px; height: 24px; }
+		.search-result-item .result-details { display: flex; flex-direction: column; }
+		.search-result-item .result-name { font-weight: 600; }
+		.search-result-item .result-meta { font-size: 0.9em; color: #6b7280; }
+		.search-filters { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 	`;
 	$('<style>').text(styles).appendTo('head');
 
@@ -27,8 +34,25 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 				<button class="btn btn-default btn-sm help-btn" title="Help">
 					<i class="fa fa-question-circle"></i>
 				</button>
+				<button class="btn btn-default btn-sm save-conversation-btn" title="Save Conversation">
+					<i class="fa fa-save"></i>
+				</button>
+				<button class="btn btn-default btn-sm view-conversations-btn" title="View Conversations">
+					<i class="fa fa-list"></i>
+				</button>
                 <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
             </div>
+			<div class="search-filters">
+				<select class="form-control search-source">
+					<option value="all">All</option>
+					<option value="erpnext">ERPNext</option>
+					<option value="drive">Google Drive</option>
+					<option value="gmail">Gmail</option>
+					<option value="tasks">Google Tasks</option>
+				</select>
+				<input type="date" class="form-control search-from-date">
+				<input type="date" class="form-control search-to-date">
+			</div>
 			<div class="search-results" style="display: none;"></div>
 			<div class="chat-history"></div>
 			<div class="chat-input-area">
@@ -37,6 +61,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 			<div class="chat-input-area">
 				<textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
 				<button class="btn btn-primary send-btn">Send</button>
+				<button class="btn btn-default upload-btn" title="Upload File"><i class="fa fa-upload"></i></button>
+				<input type="file" class="file-input" style="display: none;">
 			</div>
 		</div>
 	`;
@@ -49,6 +75,11 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 	let help_btn = $(page.body).find('.help-btn');
 	let search_input = $(page.body).find('.search-input');
 	let search_results = $(page.body).find('.search-results');
+	let search_source = $(page.body).find('.search-source');
+	let search_from_date = $(page.body).find('.search-from-date');
+	let search_to_date = $(page.body).find('.search-to-date');
+	let save_conversation_btn = $(page.body).find('.save-conversation-btn');
+	let view_conversations_btn = $(page.body).find('.view-conversations-btn');
     let conversation = [];
 
     page.model_selector = frappe.ui.form.make_control({
@@ -151,7 +182,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             args: {
                 prompt: prompt,
                 model: page.model_selector.get_value(),
-                conversation: JSON.stringify(conversation)
+                conversation: JSON.stringify(conversation),
+                file_uri: uploaded_file_uri
             },
             callback: function(r) {
                 loading.hide();
@@ -179,6 +211,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 });
             }
         });
+
+		uploaded_file_uri = null;
     };
 
     const add_to_history = (role, text) => {
@@ -219,13 +253,20 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         }
     });
 
-	search_input.on('keyup', function() {
-		let query = $(this).val();
+	const trigger_search = () => {
+		let query = search_input.val();
+		let source = search_source.val();
+		let from_date = search_from_date.val();
+		let to_date = search_to_date.val();
+
 		if (query.length > 2) {
 			frappe.call({
 				method: 'gemini_integration.api.search',
 				args: {
-					query: query
+					query: query,
+					source: source,
+					from_date: from_date,
+					to_date: to_date
 				},
 				callback: function(r) {
 					if (r.message) {
@@ -233,19 +274,48 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 						if (r.message.doctype_results.length > 0) {
 							results_html += '<h5>DocTypes</h5>';
 							r.message.doctype_results.forEach(function(result) {
-								results_html += `<a href="#" class="list-group-item list-group-item-action" data-type="doctype" data-name="${result.name}">${result.name}</a>`;
+								results_html += `<a href="#" class="search-result-item" data-type="doctype" data-name="${result.name}">
+									<img src="/assets/frappe/images/icons/common/file.svg">
+									<div class="result-details">
+										<div class="result-name">${result.name}</div>
+									</div>
+								</a>`;
 							});
 						}
 						if (r.message.drive_results.length > 0) {
 							results_html += '<h5>Google Drive</h5>';
 							r.message.drive_results.forEach(function(result) {
-								results_html += `<a href="#" class="list-group-item list-group-item-action" data-type="gdrive" data-id="${result.id}">${result.name}</a>`;
+								results_html += `<a href="#" class="search-result-item" data-type="gdrive" data-id="${result.id}">
+									<img src="${result.iconLink}">
+									<div class="result-details">
+										<div class="result-name">${result.name}</div>
+										<div class="result-meta">Owner: ${result.owners[0].displayName}</div>
+									</div>
+								</a>`;
 							});
 						}
 						if (r.message.gmail_results.length > 0) {
 							results_html += '<h5>Gmail</h5>';
 							r.message.gmail_results.forEach(function(result) {
-								results_html += `<a href="#" class="list-group-item list-group-item-action" data-type="gmail" data-id="${result.id}">${result.subject}</a>`;
+								results_html += `<a href="#" class="search-result-item" data-type="gmail" data-id="${result.id}">
+									<img src="/assets/frappe/images/icons/common/email.svg">
+									<div class="result-details">
+										<div class="result-name">${result.subject}</div>
+										<div class="result-meta">From: ${result.from} | Date: ${result.date}</div>
+									</div>
+								</a>`;
+							});
+						}
+						if (r.message.task_results.length > 0) {
+							results_html += '<h5>Google Tasks</h5>';
+							r.message.task_results.forEach(function(result) {
+								results_html += `<a href="#" class="search-result-item" data-type="task" data-id="${result.id}">
+									<img src="/assets/frappe/images/icons/common/check.svg">
+									<div class="result-details">
+										<div class="result-name">${result.title}</div>
+										<div class="result-meta">Due: ${result.due ? result.due : 'N/A'}</div>
+									</div>
+								</a>`;
 							});
 						}
 						search_results.html(results_html).show();
@@ -255,7 +325,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 		} else {
 			search_results.hide();
 		}
-	});
+	};
+
+	search_input.on('keyup', trigger_search);
+	search_source.on('change', trigger_search);
+	search_from_date.on('change', trigger_search);
+	search_to_date.on('change', trigger_search);
 
 	search_results.on('click', 'a', function(e) {
 		e.preventDefault();
@@ -272,6 +347,86 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 		}
 		search_results.hide();
 		search_input.val('');
+	});
+
+	save_conversation_btn.on('click', () => {
+		frappe.prompt([
+			{fieldname: 'title', fieldtype: 'Data', label: 'Conversation Title', reqd: 1}
+		], (values) => {
+			frappe.call({
+				method: 'gemini_integration.api.save_conversation',
+				args: {
+					title: values.title,
+					conversation: JSON.stringify(conversation)
+				},
+				callback: function(r) {
+					if (r.message) {
+						frappe.show_alert({message: 'Conversation saved successfully', indicator: 'green'});
+					}
+				}
+			});
+		}, 'Save Conversation');
+	});
+
+	view_conversations_btn.on('click', () => {
+		frappe.call({
+			method: 'gemini_integration.api.get_conversations',
+			callback: function(r) {
+				if (r.message) {
+					let conversations_html = r.message.map(conv => `<p><a href="#" class="saved-conversation" data-name="${conv.name}">${conv.title}</a></p>`).join('');
+					frappe.msgprint({
+						title: 'Saved Conversations',
+						message: conversations_html
+					});
+				}
+			}
+		});
+	});
+
+	$(document).on('click', '.saved-conversation', function(e) {
+		e.preventDefault();
+		let name = $(this).data('name');
+		frappe.call({
+			method: 'gemini_integration.api.get_conversation',
+			args: {
+				name: name
+			},
+			callback: function(r) {
+				if (r.message) {
+					conversation = JSON.parse(r.message);
+					chat_history.empty();
+					conversation.forEach(msg => add_to_history(msg.role, msg.text));
+					frappe.hide_msgprint();
+				}
+			}
+		});
+	});
+
+	let uploaded_file_uri = null;
+
+	$(page.body).on('click', '.upload-btn', function() {
+		$(page.body).find('.file-input').click();
+	});
+
+	$(page.body).on('change', '.file-input', function() {
+		let file = this.files[0];
+		if (file) {
+			let form_data = new FormData();
+			form_data.append('file', file);
+
+			frappe.call({
+				method: 'gemini_integration.api.upload_file',
+				args: {
+					file: file
+				},
+				callback: function(r) {
+					if (r.message) {
+						uploaded_file_uri = r.message.uri;
+						frappe.show_alert({message: `File "${file.name}" uploaded successfully.`, indicator: 'green'});
+					}
+				}
+			});
+		}
 	});
 }
 

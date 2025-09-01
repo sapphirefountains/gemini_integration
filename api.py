@@ -15,11 +15,11 @@ def generate(prompt, model=None):
     return generate_text(prompt, model)
 
 @frappe.whitelist()
-def chat(prompt=None, model=None, conversation=None):
+def chat(prompt=None, model=None, conversation=None, file_uri=None):
     """Endpoint for the main chat functionality."""
     if not prompt:
         frappe.throw("A prompt is required.")
-    return generate_chat_response(prompt, model, conversation)
+    return generate_chat_response(prompt, model, conversation, file_uri)
 
 @frappe.whitelist()
 def get_project_tasks(project_id, template):
@@ -47,7 +47,33 @@ def check_google_integration():
     return is_google_integrated()
 
 @frappe.whitelist()
-def search(query):
+def search(query, source=None, from_date=None, to_date=None):
     """Endpoint for unified search."""
     from gemini_integration.gemini import unified_search
-    return unified_search(query)
+    return unified_search(query, source, from_date, to_date)
+
+@frappe.whitelist()
+def upload_file():
+    """Endpoint for uploading files to Gemini."""
+    from gemini_integration.gemini import upload_file_to_gemini
+    if 'file' not in frappe.request.files:
+        frappe.throw("No file uploaded.")
+    return upload_file_to_gemini(frappe.request.files['file'])
+
+@frappe.whitelist()
+def save_conversation(title, conversation):
+    """Saves a new conversation."""
+    from gemini_integration.gemini import save_conversation as save
+    return save(title, conversation)
+
+@frappe.whitelist()
+def get_conversations():
+    """Gets a list of saved conversations for the current user."""
+    from gemini_integration.gemini import get_conversations as get_list
+    return get_list()
+
+@frappe.whitelist()
+def get_conversation(name):
+    """Gets the content of a specific conversation."""
+    from gemini_integration.gemini import get_conversation as get_conv
+    return get_conv(name)

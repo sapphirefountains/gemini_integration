@@ -5,9 +5,12 @@ import re
 import json
 import base64
 from datetime import datetime, timedelta
+from fuzzywuzzy import fuzz
+import os
 
 # Google API Imports
 from google_auth_oauthlib.flow import Flow
+
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -49,6 +52,21 @@ def generate_text(prompt, model_name=None):
 def get_doc_context(doctype, docname):
     """Fetches and formats a document's data for context."""
     try:
+        if doctype == "File":
+            doc = frappe.get_doc(doctype, docname)
+            file_url = doc.file_url
+            file_path = frappe.get_site_path("public", file_url.lstrip("/"))
+
+            if os.path.exists(file_path):
+                if not configure_gemini():
+                    frappe.throw("Gemini integration is not configured.")
+                
+                uploaded_file = genai.upload_file(path=file_path, display_name=doc.file_name)
+                context = f"Context for File '{docname}':\n- Name: {doc.file_name}\n- URL: {doc.file_url}\n"
+                return {"context": context, "file_uri": uploaded_file.uri}
+            else:
+                return {"context": f"(System: File '{docname}' not found on the server.)\n", "file_uri": None}
+
         doc = frappe.get_doc(doctype, docname)
         doc_dict = doc.as_dict()
         context = f"Context for {doctype} '{docname}':\n"
@@ -60,12 +78,13 @@ def get_doc_context(doctype, docname):
         
         doc_url = get_url_to_form(doctype, docname)
         context += f"\nLink: {doc_url}"
-        return context
+        return {"context": context, "file_uri": None}
     except frappe.DoesNotExistError:
-        return f"(System: Document '{docname}' of type '{doctype}' not found.)\n"
+        return {"context": f"(System: Document '{docname}' of type '{doctype}' not found.)\n", "file_uri": None}
     except Exception as e:
         frappe.log_error(f"Error fetching doc context: {str(e)}")
-        return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
+        return {"context": f"(System: Could not retrieve context for {doctype} {docname}.)\n", "file_uri": None}
+
 
 def get_dynamic_doctype_map():
     """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
@@ -133,6 +152,7 @@ def get_google_flow():
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/tasks.readonly",
     ]
     return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
 
@@ -268,11 +288,14 @@ def search_gmail(credentials, query):
         
         return email_context
     except HttpError as error:
+        error_json = json.loads(error.content.decode('utf-8'))
+        error_message = error_json.get("error", {}).get("message", "An unknown error occurred.")
         frappe.log_error(
-            message=f"Google Gmail API Error for query '{query}': {error.content}",
+            message=f"Google Gmail API Error for query '{query}': {error_message}",
             title="Gemini Gmail Error"
         )
-        return f"An API error occurred during Gmail search. Please check the Error Log for details.\n"
+        return f"An API error occurred during Gmail search: {error_message}\n"
+
 
 def search_drive(credentials, query):
     """Searches Google Drive for a query or lists recent files."""
@@ -302,7 +325,10 @@ def search_drive(credentials, query):
             drive_context += f"- Name: {item['name']}, Link: {item['webViewLink']}\n"
         return drive_context
     except HttpError as error:
-        return f"An error occurred with Google Drive: {error}"
+        error_json = json.loads(error.content.decode('utf-8'))
+        error_message = error_json.get("error", {}).get("message", "An unknown error occurred.")
+        frappe.log_error(f"Google Drive API Error: {error_message}", "Gemini Integration")
+        return f"An error occurred with Google Drive: {error_message}"
 
 def search_calendar(credentials, query):
     """Lists upcoming calendar events for the next 7 days."""
@@ -312,23 +338,35 @@ def search_calendar(credentials, query):
         time_min = now.isoformat() + 'Z'
         time_max = (now + timedelta(days=7)).isoformat() + 'Z'
         
+        frappe.log_info("Fetching calendar list...", "Gemini Calendar Integration")
         calendar_list = service.calendarList().list().execute()
         all_events = []
 
+        if not calendar_list.get('items', []):
+            frappe.log_warning("No calendars found for the user.", "Gemini Calendar Integration")
+            return "No calendars found in your Google Account."
+
         for calendar_list_entry in calendar_list.get('items', []):
             calendar_id = calendar_list_entry['id']
-            events_result = service.events().list(
-                calendarId=calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                maxResults=10,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
-            
-            for event in events_result.get('items', []):
-                event['calendar_name'] = calendar_list_entry.get('summary', calendar_id)
-                all_events.append(event)
+            try:
+                frappe.log_info(f"Fetching events for calendar: {calendar_id}", "Gemini Calendar Integration")
+                events_result = service.events().list(
+                    calendarId=calendar_id,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    maxResults=10,
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+                
+                events = events_result.get('items', [])
+                frappe.log_info(f"Found {len(events)} events for calendar: {calendar_id}", "Gemini Calendar Integration")
+
+                for event in events:
+                    event['calendar_name'] = calendar_list_entry.get('summary', calendar_id)
+                    all_events.append(event)
+            except HttpError as e:
+                frappe.log_error(f"Error fetching events for calendar {calendar_id}: {e}", "Gemini Calendar Integration")
 
         if not all_events:
             return "No upcoming calendar events found in the next 7 days."
@@ -343,7 +381,30 @@ def search_calendar(credentials, query):
             calendar_context += f"- {summary} at {start} (from Calendar: {calendar_name})\n"
         return calendar_context
     except HttpError as error:
-        return f"An error occurred with Google Calendar: {error}"
+        error_json = json.loads(error.content.decode('utf-8'))
+        error_message = error_json.get("error", {}).get("message", "An unknown error occurred.")
+        frappe.log_error(f"Google Calendar API Error: {error_message}", "Gemini Integration")
+        return f"An error occurred with Google Calendar: {error_message}"
+
+def search_tasks(credentials, query):
+    """Searches Google Tasks for a query."""
+    try:
+        service = build('tasks', 'v1', credentials=credentials)
+        task_lists = service.tasklists().list().execute().get('items', [])
+        all_tasks = []
+
+        for task_list in task_lists:
+            tasks = service.tasks().list(tasklist=task_list['id']).execute().get('items', [])
+            for task in tasks:
+                if query.lower() in task.get('title', '').lower():
+                    all_tasks.append(task)
+        
+        return all_tasks
+    except HttpError as error:
+        error_json = json.loads(error.content.decode('utf-8'))
+        error_message = error_json.get("error", {}).get("message", "An unknown error occurred.")
+        frappe.log_error(f"Google Tasks API Error: {error_message}", "Gemini Integration")
+        return f"An error occurred with Google Tasks: {error_message}"
 
 def get_drive_file_context(credentials, file_id):
     """Fetches a Drive file's metadata and content, supporting Shared Drives."""
@@ -360,31 +421,55 @@ def get_drive_file_context(credentials, file_id):
         context += f"- Link: {file_meta.get('webViewLink', 'Link not available')}\n"
 
         mime_type = file_meta.get('mimeType', '')
-        content = ""
+        file_content = None
 
         if 'google-apps.document' in mime_type:
-            content_bytes = service.files().export_media(fileId=file_id, mimeType='text/plain').execute()
-            content = content_bytes.decode('utf-8')
-        elif mime_type == 'text/plain':
-            content_bytes = service.files().get_media(fileId=file_id, supportsAllDrives=True).execute()
-            content = content_bytes.decode('utf-8')
+            file_content = service.files().export_media(fileId=file_id, mimeType='application/pdf').execute()
+            file_name = file_meta.get('name', 'Untitled') + ".pdf"
+        elif 'google-apps.spreadsheet' in mime_type:
+            file_content = service.files().export_media(fileId=file_id, mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').execute()
+            file_name = file_meta.get('name', 'Untitled') + ".xlsx"
+        elif 'google-apps.presentation' in mime_type:
+            file_content = service.files().export_media(fileId=file_id, mimeType='application/vnd.openxmlformats-officedocument.presentationml.presentation').execute()
+            file_name = file_meta.get('name', 'Untitled') + ".pptx"
         else:
-            content = "(Content preview is not available for this file type.)"
+            file_content = service.files().get_media(fileId=file_id, supportsAllDrives=True).execute()
+            file_name = file_meta.get('name', 'Untitled')
 
-        # Truncate content to avoid excessive length
-        context += f"Content Snippet:\n{content[:3000]}"
-        return context
+        if file_content:
+            temp_path = os.path.join("/tmp", file_name)
+            with open(temp_path, "wb") as f:
+                f.write(file_content)
+
+            if not configure_gemini():
+                frappe.throw("Gemini integration is not configured.")
+            
+            uploaded_file = genai.upload_file(path=temp_path, display_name=file_name)
+            os.remove(temp_path)
+
+            return {
+                "context": context,
+                "file_uri": uploaded_file.uri
+            }
+        else:
+            context += "(Content preview is not available for this file type.)"
+            return {"context": context, "file_uri": None}
+
     except HttpError as error:
+        error_json = json.loads(error.content.decode('utf-8'))
+        error_message = error_json.get("error", {}).get("message", "An unknown error occurred.")
         frappe.log_error(
-            message=f"Google Drive API Error for fileId {file_id}: {error.content}",
+            message=f"Google Drive API Error for fileId {file_id}: {error_message}",
             title="Gemini Google Drive Error"
         )
         if error.resp.status == 404:
-            return f"(System: A 404 Not Found error occurred for Google Drive file {file_id}. This means the file does not exist or you do not have permission to access it. Please double-check the file ID and your permissions in Google Drive. More details may be in the Error Log.)\n"
-        return f"An API error occurred while fetching Google Drive file {file_id}. Please check the Error Log for details.\n"
+            return {"context": f"(System: A 404 Not Found error occurred for Google Drive file {file_id}. This means the file does not exist or you do not have permission to access it. Please double-check the file ID and your permissions in Google Drive. More details may be in the Error Log.)\n", "file_uri": None}
+        return {"context": f"An API error occurred while fetching Google Drive file {file_id}: {error_message}\n", "file_uri": None}
     except Exception as e:
         frappe.log_error(f"Error fetching drive file context for {file_id}: {str(e)}")
-        return f"(System: Could not retrieve context for Google Drive file {file_id}.)\n"
+        return {"context": f"(System: Could not retrieve context for Google Drive file {file_id}.)\n", "file_uri": None}
+
+
 
 def get_gmail_message_context(credentials, message_id):
     """Fetches a specific Gmail message's headers and body."""
@@ -416,23 +501,187 @@ def get_gmail_message_context(credentials, message_id):
         context += f"Body Snippet:\n{content[:3000]}"
         return context
     except HttpError as error:
-        return f"An error occurred while fetching Gmail message {message_id}: {error}\n"
+        error_json = json.loads(error.content.decode('utf-8'))
+        error_message = error_json.get("error", {}).get("message", "An unknown error occurred.")
+        frappe.log_error(f"Google Gmail API Error for message {message_id}: {error_message}", "Gemini Integration")
+        return f"An error occurred while fetching Gmail message {message_id}: {error_message}\n"
     except Exception as e:
         frappe.log_error(f"Error fetching gmail context for {message_id}: {str(e)}")
         return f"(System: Could not retrieve context for Gmail message {message_id}.)\n"
 
+
+def upload_file_to_gemini(file):
+    """Uploads a file to the Gemini API."""
+    if not file:
+        frappe.throw("No file provided.")
+
+    try:
+        file_content = file.read()
+        file_name = file.filename
+
+        # Save the file to a temporary location
+        temp_path = os.path.join("/tmp", file_name)
+        with open(temp_path, "wb") as f:
+            f.write(file_content)
+
+        # Upload the file to Gemini
+        if not configure_gemini():
+            frappe.throw("Gemini integration is not configured.")
+        
+        try:
+            uploaded_file = genai.upload_file(path=temp_path, display_name=file_name)
+        except Exception as e:
+            frappe.log_error(f"Gemini API Error: {e}", "Gemini Integration")
+            frappe.throw(f"Failed to upload file to Gemini: {e}")
+
+        # Clean up the temporary file
+        os.remove(temp_path)
+
+        return {
+            "uri": uploaded_file.uri,
+            "display_name": uploaded_file.display_name
+        }
+    except Exception as e:
+        frappe.log_error(f"File upload failed: {e}", "Gemini Integration")
+        frappe.throw("File upload failed. Please check the logs for more details.")
+
+# --- UNIFIED SEARCH ---
+def unified_search(query, source=None, from_date=None, to_date=None):
+    """Performs a unified search across ERPNext DocTypes, Google Drive, and Gmail."""
+    results = {
+        "doctype_results": [],
+        "drive_results": [],
+        "gmail_results": [],
+        "task_results": []
+    }
+
+    # 1. Search ERPNext DocTypes (Fuzzy Search)
+    if source == "all" or source == "erpnext":
+        all_doctypes = frappe.get_all("DocType", fields=["name"], filters={"issingle": 0, "istable": 0})
+        doctype_names = [d.name for d in all_doctypes]
+        
+        # Add a threshold to avoid too many irrelevant results
+        threshold = 75 
+        for dt in doctype_names:
+            ratio = fuzz.partial_ratio(query.lower(), dt.lower())
+            if ratio > threshold:
+                results["doctype_results"].append({"name": dt, "score": ratio})
+        
+        # Sort by score, descending
+        results["doctype_results"] = sorted(results["doctype_results"], key=lambda x: x["score"], reverse=True)[:5]
+
+    # 2. Search Google Workspace
+    if source == "all" or source == "drive" or source == "gmail":
+        creds = get_user_credentials()
+        if creds:
+            # Search Google Drive
+            if source == "all" or source == "drive":
+                try:
+                    drive_query = f"fullText contains '{query}'"
+                    if from_date:
+                        drive_query += f" and modifiedTime > '{from_date}T00:00:00'"
+                    if to_date:
+                        drive_query += f" and modifiedTime < '{to_date}T23:59:59'"
+
+                    drive_service = build('drive', 'v3', credentials=creds)
+                    drive_response = drive_service.files().list(
+                        q=drive_query,
+                        pageSize=5,
+                        fields="files(id, name, webViewLink, iconLink, owners)",
+                        corpora='allDrives',
+                        includeItemsFromAllDrives=True,
+                        supportsAllDrives=True
+                    ).execute()
+                    results["drive_results"] = drive_response.get('files', [])
+                except HttpError as e:
+                    frappe.log_error(f"Unified Search Drive Error: {e}", "Gemini Integration")
+
+            # Search Gmail
+            if source == "all" or source == "gmail":
+                try:
+                    gmail_query = f'"{query}" in:anywhere'
+                    if from_date:
+                        gmail_query += f" after:{from_date.replace('-', '/')}"
+                    if to_date:
+                        gmail_query += f" before:{to_date.replace('-', '/')}"
+
+                    gmail_service = build('gmail', 'v1', credentials=creds)
+                    gmail_response = gmail_service.users().messages().list(
+                        userId='me',
+                        q=gmail_query,
+                        maxResults=5
+                    ).execute()
+                    messages = gmail_response.get('messages', [])
+                    
+                    if messages:
+                        batch = gmail_service.new_batch_http_request()
+                        gmail_data = {}
+
+                        def create_callback(msg_id):
+                            def callback(request_id, response, exception):
+                                if not exception:
+                                    gmail_data[msg_id] = response
+                            return callback
+
+                        for msg in messages:
+                            batch.add(
+                                gmail_service.users().messages().get(userId='me', id=msg['id'], format='metadata', metadataHeaders=['Subject', 'From', 'Date']),
+                                callback=create_callback(msg['id'])
+                            )
+                        batch.execute()
+                        
+                        for msg in messages:
+                            if msg['id'] in gmail_data:
+                                headers = {h['name']: h['value'] for h in gmail_data[msg['id']]['payload']['headers']}
+                                results["gmail_results"].append({
+                                    "id": msg['id'],
+                                    "threadId": gmail_data[msg['id']]['threadId'],
+                                    "subject": headers.get('Subject', 'No Subject'),
+                                    "from": headers.get('From', 'N/A'),
+                                    "date": headers.get('Date', 'N/A'),
+                                    "snippet": gmail_data[msg['id']]['snippet']
+                                })
+
+                except HttpError as e:
+                    frappe.log_error(f"Unified Search Gmail Error: {e}", "Gemini Integration")
+
+            # Search Google Tasks
+            if source == "all" or source == "tasks":
+                try:
+                    results["task_results"] = search_tasks(creds, query)
+                except HttpError as e:
+                    frappe.log_error(f"Unified Search Tasks Error: {e}", "Gemini Integration")
+
+    return results
+
+
 # --- MAIN CHAT FUNCTIONALITY ---
-def generate_chat_response(prompt, model=None, conversation=None):
-    """Handles chat interactions by assembling context from ERPNext and Google Workspace.
-    
-    The process is as follows:
-    1. Look for explicit ERPNext doc references (e.g., @CUST-0001).
-    2. If none, check for things that look like doc IDs but are missing the '@' and guide the user.
-    3. Look for explicit Google Workspace references (e.g., @gdrive/file_id).
-    4. Perform keyword-based or general searches in Google Workspace.
-    5. Assemble all gathered context into a final prompt for the AI.
-    6. Clean all reference syntax from the prompt before sending.
-    """
+def generate_chat_response(prompt, model=None, conversation=None, file_uri=None):
+    """Handles chat interactions by assembling context from ERPNext and Google Workspace."""
+
+    # 1. Intent Detection for Actionable Responses
+    if re.search(r'\b(create|new|add) task\b', prompt, re.IGNORECASE):
+        try:
+            extraction_prompt = f"Extract the subject and description for a new task from the following prompt: \n\n'{prompt}'\n\nReturn ONLY a valid JSON object with two keys: 'subject' and 'description'."
+            response_text = generate_text(extraction_prompt)
+            task_details = json.loads(response_text)
+            
+            task = create_erpnext_task(task_details['subject'], task_details['description'])
+            if task:
+                task_url = get_url_to_form("Task", task.name)
+                answer = f"I have created a new task for you: [{task.subject}]({task_url})"
+                return frappe._dict({"thoughts": "", "answer": answer})
+        except Exception as e:
+            frappe.log_error(f"Failed to create task from prompt: {e}", "Gemini Integration")
+            # Fall through to the normal chat response if task creation fails
+
+    # The process is as follows:
+    # 1. Look for explicit ERPNext doc references (e.g., @CUST-0001).
+    # 2. If none, check for things that look like doc IDs but are missing the '@' and guide the user.
+    # 3. Look for explicit Google Workspace references (e.g., @gdrive/file_id).
+    # 4. Perform keyword-based or general searches in Google Workspace.
+    # 5. Assemble all gathered context into a final prompt for the AI.
+    # 6. Clean all reference syntax from the prompt before sending.
     
     thoughts = []
     
@@ -479,7 +728,10 @@ def generate_chat_response(prompt, model=None, conversation=None):
                         break
             
             if found_doctype:
-                full_context += get_doc_context(found_doctype, doc_name) + "\n\n"
+                doc_context_data = get_doc_context(found_doctype, doc_name)
+                full_context += doc_context_data["context"] + "\n\n"
+                if doc_context_data["file_uri"]:
+                    file_uris.append(doc_context_data["file_uri"])
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
@@ -493,11 +745,15 @@ def generate_chat_response(prompt, model=None, conversation=None):
         # 4a. Handle direct Google Workspace references
         gdrive_refs = re.findall(r'@gdrive/([\w-]+)', prompt)
         gmail_refs = re.findall(r'@gmail/([\w-]+)', prompt)
+        file_uris = []
 
         if gdrive_refs:
             thoughts.append(f"Found Google Drive references: {gdrive_refs}")
         for file_id in gdrive_refs:
-            google_context += get_drive_file_context(creds, file_id) + "\n\n"
+            drive_context_data = get_drive_file_context(creds, file_id)
+            google_context += drive_context_data["context"] + "\n\n"
+            if drive_context_data["file_uri"]:
+                file_uris.append(drive_context_data["file_uri"])
 
         if gmail_refs:
             thoughts.append(f"Found Gmail references: {gmail_refs}")
@@ -538,20 +794,29 @@ def generate_chat_response(prompt, model=None, conversation=None):
 
     # 6. Assemble the final prompt for the AI.
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
-    final_prompt = ""
+    final_prompt_parts = []
     if system_instruction:
-        final_prompt += f"System Instruction: {system_instruction}\n\n"
+        final_prompt_parts.append(f"System Instruction: {system_instruction}")
     
     if full_context:
-        final_prompt += f"--- ERPNext Data Context ---\n{full_context}\n"
+        final_prompt_parts.append(f"--- ERPNext Data Context ---\n{full_context}")
     
     if google_context:
-        final_prompt += f"--- Google Workspace Data Context ---\n{google_context}\n"
+        final_prompt_parts.append(f"--- Google Workspace Data Context ---\n{google_context}")
 
-    final_prompt += f"User query: {clean_prompt}\n"
-    final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
+    if file_uri:
+        file_uris.append(file_uri)
 
-    answer = generate_text(final_prompt, model)
+    if file_uris:
+        thoughts.append(f"Using uploaded files: {file_uris}")
+        for uri in file_uris:
+            uploaded_file = genai.get_file(name=uri)
+            final_prompt_parts.append(uploaded_file)
+
+    final_prompt_parts.append(f"User query: {clean_prompt}")
+    final_prompt_parts.append("\nBased on the user query and any provided context, please provide a helpful and comprehensive response.")
+
+    answer = generate_text(final_prompt_parts, model)
     thought_string = "\n".join(thoughts)
     
     return frappe._dict({"thoughts": thought_string, "answer": answer})
@@ -603,3 +868,32 @@ def analyze_risks(project_id):
         return risks
     except json.JSONDecodeError:
         return {"error": "Failed to parse a JSON response from the AI. Please try again."}
+
+def save_conversation(title, conversation):
+    """Saves a new conversation."""
+    doc = frappe.new_doc("Gemini Conversation")
+    doc.title = title
+    doc.conversation = conversation
+    doc.user = frappe.session.user
+    doc.insert(ignore_permissions=True)
+    return doc
+
+def get_conversations():
+    """Gets a list of saved conversations for the current user."""
+    return frappe.get_list("Gemini Conversation", fields=["name", "title"], filters={"user": frappe.session.user})
+
+def get_conversation(name):
+    """Gets the content of a specific conversation."""
+    return frappe.get_doc("Gemini Conversation", name).get("conversation")
+
+def create_erpnext_task(subject, description):
+    """Creates a new Task document in ERPNext."""
+    try:
+        task = frappe.new_doc("Task")
+        task.subject = subject
+        task.description = description
+        task.insert()
+        return task
+    except Exception as e:
+        frappe.log_error(f"Failed to create task: {e}", "Gemini Integration")
+        return None
