@@ -135,25 +135,29 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 	help_btn.on('click', () => {
 		const help_html = `
 			<div>
-				<h4>How to Reference Data</h4>
+				<h4>How to Use Gemini Chat</h4>
+
+				<h5>1. Referencing Data</h5>
 				<p>You can reference data from ERPNext and Google Workspace directly in your chat messages.</p>
-				
-				<h5>ERPNext Documents</h5>
-				<p>Use <code>@DocType-ID</code> or <code>@"Doc Name"</code> to reference any document.</p>
 				<ul>
-					<li><code>What is the status of @PRJ-00183?</code></li>
-					<li><code>Summarize customer @"Valley Fair"</code></li>
+					<li><b>ERPNext Documents:</b> Use <code>@DocType-ID</code> or <code>@"Doc Name"</code> to reference any document.</li>
+					<li><b>Google Drive & Gmail:</b> Use <code>@gdrive/file_id</code> or <code>@gmail/message_id</code> to reference specific items.</li>
 				</ul>
 
-				<h5>Google Drive & Gmail</h5>
-				<p>Use <code>@gdrive/file_id</code> or <code>@gmail/message_id</code> to reference specific items.</p>
+				<h5>2. Advanced Search</h5>
+				<p>Use the search bar to find information across all your connected sources. You can filter by source (All, ERPNext, Google Drive, Gmail, Google Tasks) and by date range.</p>
+
+				<h5>3. File Uploads</h5>
+				<p>Click the upload button (<i class="fa fa-upload"></i>) to upload a file. The file will be sent to Gemini and used as context for your next message.</p>
+
+				<h5>4. Actionable Responses</h5>
+				<p>You can ask Gemini to perform actions for you, such as creating a new task.</p>
 				<ul>
-					<li><code>Summarize the file @gdrive/1a2b3c...</code></li>
-					<li><code>What was the outcome of email @gmail/a1b2c3...?</code></li>
+					<li><code>Create a new task to follow up with John Doe.</code></li>
 				</ul>
 
-				<h5>General Search</h5>
-				<p>For general queries, the system will automatically search Google Drive and Gmail. You can also use keywords like <code>email</code>, <code>drive</code>, or <code>calendar</code> to focus the search.</p>
+				<h5>5. Conversation History</h5>
+				<p>Click the save button (<i class="fa fa-save"></i>) to save your current conversation. You can view your saved conversations by clicking the view button (<i class="fa fa-list"></i>).</p>
 			</div>
 		`;
 
