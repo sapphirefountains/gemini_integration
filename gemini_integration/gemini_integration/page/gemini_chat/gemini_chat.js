@@ -12,6 +12,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 		.chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; word-wrap: break-word; }
 		.chat-bubble.user { background-color: #3b82f6; color: white; margin-left: auto; border-bottom-right-radius: 0; }
 		.chat-bubble.gemini { background-color: #e5e7eb; color: #1f2937; margin-right: auto; border-bottom-left-radius: 0; }
+		.chat-bubble.thought { background-color: #f3f4f6; color: #4b5563; border-left: 3px solid #6b7280; font-style: italic; font-size: 0.9em; margin-right: auto; border-bottom-left-radius: 0; white-space: pre-wrap; }
 		.chat-input-area { display: flex; align-items: center; gap: 8px; }
 		.chat-input-area textarea { flex-grow: 1; }
         .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
@@ -147,8 +148,19 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             },
             callback: function(r) {
                 loading.hide();
-                let response_text = r.message;
-                add_to_history('gemini', response_text);
+                if (r.message) {
+                    // Handle the structured response with thoughts and answer
+                    const thoughts = r.message.thoughts;
+                    const answer = r.message.answer;
+
+                    if (thoughts) {
+                        add_to_history('thought', thoughts);
+                    }
+                    add_to_history('gemini', answer);
+                } else {
+                    // Handle plain string response for backward compatibility or errors
+                    add_to_history('gemini', r.message);
+                }
             },
             error: function(r) {
                 loading.hide();
@@ -166,18 +178,23 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         let bubble = $(`<div class="chat-bubble ${role}"></div>`);
         
         if (text) {
-            if (window.showdown) {
+            if (role === 'gemini' && window.showdown) {
                 let converter = new showdown.Converter();
                 let html = converter.makeHtml(text);
                 bubble.html(html);
             } else {
+                // For user messages and thoughts, just display the text.
                 bubble.text(text);
             }
         }
         
         chat_history.append(bubble);
         chat_history.scrollTop(chat_history[0].scrollHeight);
-        conversation.push({role: role, text: text});
+        
+        // Only add user and gemini messages to the conversation history for the next prompt
+        if (role === 'user' || role === 'gemini') {
+            conversation.push({role: role, text: text});
+        }
     };
     
     let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
@@ -188,12 +205,9 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 
     send_btn.on('click', send_message);
 
-    // --- THIS IS THE FIX for the Enter key ---
-    // Use 'keydown' to better handle modifier keys like Shift.
     chat_input.on('keydown', function(e) {
-        // Only send the message if Shift and Enter are pressed together.
         if (e.key === 'Enter' && e.shiftKey) {
-            e.preventDefault(); // Prevent default action (like adding a newline)
+            e.preventDefault();
             send_message();
         }
     });
