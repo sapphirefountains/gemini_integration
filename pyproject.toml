@@ -12,7 +12,8 @@ dependencies = [
     # Add Google Generative AI dependency
     "google-generativeai",
     "google-api-python-client",
-    "google-auth-oauthlib"
+    "google-auth-oauthlib",
+    "fuzzywuzzy"
 ]
 
 [build-system]
