@@ -57,8 +57,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             fieldtype: 'Select',
             label: 'Model',
             options: [
-                { label: "Gemini 1.5 Flash", value: "gemini-1.5-flash" },
-                { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
+                { label: "Gemini 2.5 Flash", value: "gemini-2.5-flash" },
+                { label: "Gemini 2.5 Pro", value: "gemini-2.5-pro" }
             ],
             change: function() {
                 if (frappe.storage) {
@@ -75,10 +75,10 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         if (last_model) {
             page.model_selector.set_value(last_model);
         } else {
-            page.model_selector.set_value('gemini-1.5-flash');
+            page.model_selector.set_value('gemini-2.5-flash');
         }
     } else {
-        page.model_selector.set_value('gemini-1.5-flash');
+        page.model_selector.set_value('gemini-2.5-flash');
     }
     
     frappe.call({
