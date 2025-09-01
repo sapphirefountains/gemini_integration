@@ -437,7 +437,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
     thoughts = []
     
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
@@ -532,7 +532,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += search_drive(creds, search_prompt)
 
     # 5. Clean the prompt of all reference syntax.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
@@ -558,4 +558,48 @@ def generate_chat_response(prompt, model=None, conversation=None):
 
 
 # --- PROJECT-SPECIFIC FUNCTIONS ---
-# ... (rest of the file is unchanged) ...
+def generate_tasks(project_id, template):
+    """Generates a list of tasks for a project using Gemini."""
+    if not frappe.db.exists("Project", project_id):
+        return {"error": "Project not found."}
+    
+    project = frappe.get_doc("Project", project_id)
+    project_details = project.as_dict()
+    
+    prompt = f"""
+    Based on the following project details and the selected template '{template}', generate a list of tasks.
+    Project Details: {json.dumps(project_details, indent=2, default=str)}
+    
+    Please return ONLY a valid JSON list of objects. Each object should have two keys: "subject" and "description".
+    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...] 
+    """
+    
+    response_text = generate_text(prompt)
+    try:
+        tasks = json.loads(response_text)
+        return tasks
+    except json.JSONDecodeError:
+        return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
+
+def analyze_risks(project_id):
+    """Analyzes a project for potential risks using Gemini."""
+    if not frappe.db.exists("Project", project_id):
+        return {"error": "Project not found."}
+    
+    project = frappe.get_doc("Project", project_id)
+    project_details = project.as_dict()
+    
+    prompt = f"""
+    Analyze the following project for potential risks (e.g., timeline, budget, scope creep, resource constraints).
+    Project Details: {json.dumps(project_details, indent=2, default=str)}
+    
+    Please return ONLY a valid JSON list of objects. Each object should have two keys: "risk_name" (a short title) and "risk_description".
+    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...] 
+    """
+    
+    response_text = generate_text(prompt)
+    try:
+        risks = json.loads(response_text)
+        return risks
+    except json.JSONDecodeError:
+        return {"error": "Failed to parse a JSON response from the AI. Please try again."}
