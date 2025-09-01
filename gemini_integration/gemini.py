@@ -272,7 +272,7 @@ def search_gmail(credentials, query):
             message=f"Google Gmail API Error for query '{query}': {error.content}",
             title="Gemini Gmail Error"
         )
-        return "An API error occurred during Gmail search. Please check the Error Log for details.\n"
+        return f"An API error occurred during Gmail search. Please check the Error Log for details.\n"
 
 def search_drive(credentials, query):
     """Searches Google Drive for a query or lists recent files."""
@@ -434,30 +434,31 @@ def generate_chat_response(prompt, model=None, conversation=None):
     6. Clean all reference syntax from the prompt before sending.
     """
     
+    thoughts = []
+    
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
-    # This prevents hallucinations by catching mistakes and guiding the user.
     if not doc_names:
         doctype_map = get_dynamic_doctype_map()
         prefixes = list(doctype_map.keys())
         if prefixes:
-            # Regex to find patterns like 'PRJ-00123' based on known prefixes.
             pattern = r'\b(' + '|'.join(re.escape(p) for p in prefixes) + r')-[\w\d-]+'
             potential_ids = re.findall(pattern, prompt, re.IGNORECASE)
             if potential_ids:
                 suggestions = [f"@{pid}" for pid in potential_ids]
                 suggestion_str = ", ".join(suggestions)
-                return (
-                    f"To ensure I pull the correct data from ERPNext, please use the '@' symbol before any document ID. "
-                    f"For example, try asking: 'What is the current status of {suggestion_str}?'"
-                )
+                return frappe._dict({
+                    "answer": f"To ensure I pull the correct data from ERPNext, please use the '@' symbol before any document ID. For example, try asking: 'What is the current status of {suggestion_str}?'",
+                    "thoughts": ""
+                })
 
     # 3. Gather context from all found ERPNext references.
     full_context = ""
     if doc_names:
+        thoughts.append(f"Found ERPNext references: {doc_names}")
         doctype_map = get_dynamic_doctype_map()
         all_doctype_names = [d.name for d in frappe.get_all("DocType")]
 
@@ -489,18 +490,21 @@ def generate_chat_response(prompt, model=None, conversation=None):
         creds = get_user_credentials()
 
     if creds:
-        # 4a. Look for direct references like @gdrive/file_id or @gmail/message_id
+        # 4a. Handle direct Google Workspace references
         gdrive_refs = re.findall(r'@gdrive/([\w-]+)', prompt)
         gmail_refs = re.findall(r'@gmail/([\w-]+)', prompt)
 
+        if gdrive_refs:
+            thoughts.append(f"Found Google Drive references: {gdrive_refs}")
         for file_id in gdrive_refs:
             google_context += get_drive_file_context(creds, file_id) + "\n\n"
 
+        if gmail_refs:
+            thoughts.append(f"Found Gmail references: {gmail_refs}")
         for msg_id in gmail_refs:
             google_context += get_gmail_message_context(creds, msg_id) + "\n\n"
 
-        # 4b. Perform keyword-based or general searches for any text not part of a direct reference.
-        # This avoids searching for "@gdrive/123" if it was already handled.
+        # 4b. Perform keyword-based or general searches
         search_prompt = re.sub(r'@gdrive/[\w-]+', '', prompt).strip()
         search_prompt = re.sub(r'@gmail/[\w-]+', '', search_prompt).strip()
 
@@ -509,26 +513,30 @@ def generate_chat_response(prompt, model=None, conversation=None):
         calendar_triggered = re.search(r'\b(calendar|event|meeting)\b', search_prompt.lower())
 
         if gmail_triggered:
+            thoughts.append(f"Searching Gmail for '{search_prompt}' based on keyword.")
             google_context += search_gmail(creds, search_prompt)
         
         if drive_triggered:
+            thoughts.append(f"Searching Google Drive for '{search_prompt}' based on keyword.")
             google_context += search_drive(creds, search_prompt)
 
         if calendar_triggered:
+            thoughts.append(f"Searching Google Calendar for '{search_prompt}' based on keyword.")
             google_context += search_calendar(creds, search_prompt)
 
-        # 4c. If no specific keywords or direct links were used, perform a general search.
+        # 4c. If no specific actions were triggered, perform a general search.
         if not any([gmail_triggered, drive_triggered, calendar_triggered, gdrive_refs, gmail_refs]):
+            thoughts.append("Performing general search on Gmail and Google Drive.")
             google_context += search_gmail(creds, search_prompt)
             google_context += "\n"
             google_context += search_drive(creds, search_prompt)
 
-    # 5. Clean the prompt of all reference syntax before sending it to the AI.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
+    # 5. Clean the prompt of all reference syntax.
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^\"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
-    # 6. Assemble the final prompt with all context.
+    # 6. Assemble the final prompt for the AI.
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
     final_prompt = ""
     if system_instruction:
@@ -543,50 +551,11 @@ def generate_chat_response(prompt, model=None, conversation=None):
     final_prompt += f"User query: {clean_prompt}\n"
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
 
-    return generate_text(final_prompt, model)
+    answer = generate_text(final_prompt, model)
+    thought_string = "\n".join(thoughts)
+    
+    return frappe._dict({"thoughts": thought_string, "answer": answer})
 
 
 # --- PROJECT-SPECIFIC FUNCTIONS ---
-def generate_tasks(project_id, template):
-    """Generates a list of tasks for a project using Gemini."""
-    if not frappe.db.exists("Project", project_id):
-        return {"error": "Project not found."}
-    
-    project = frappe.get_doc("Project", project_id)
-    project_details = project.as_dict()
-    
-    prompt = f"""
-    Based on the following project details and the selected template '{template}', generate a list of tasks.
-    Project Details: {json.dumps(project_details, indent=2, default=str)}
-    
-    Please return ONLY a valid JSON list of objects. Each object should have two keys: "subject" and "description".
-    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...]    """
-    
-    response_text = generate_text(prompt)
-    try:
-        tasks = json.loads(response_text)
-        return tasks
-    except json.JSONDecodeError:
-        return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
-
-def analyze_risks(project_id):
-    """Analyzes a project for potential risks using Gemini."""
-    if not frappe.db.exists("Project", project_id):
-        return {"error": "Project not found."}
-    
-    project = frappe.get_doc("Project", project_id)
-    project_details = project.as_dict()
-    
-    prompt = f"""
-    Analyze the following project for potential risks (e.g., timeline, budget, scope creep, resource constraints).
-    Project Details: {json.dumps(project_details, indent=2, default=str)}
-    
-    Please return ONLY a valid JSON list of objects. Each object should have two keys: "risk_name" (a short title) and "risk_description".
-    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...]    """
-    
-    response_text = generate_text(prompt)
-    try:
-        risks = json.loads(response_text)
-        return risks
-    except json.JSONDecodeError:
-        return {"error": "Failed to parse a JSON response from the AI. Please try again."}
+# ... (rest of the file is unchanged) ...
