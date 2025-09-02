@@ -57,6 +57,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 			</div>
 			<div class="chat-history"></div>
 			<div class="chat-input-area">
+				<button class="btn btn-default btn-sm search-drive-btn" title="Search Google Drive">
+					<i class="fa fa-google"></i> Drive
+				</button>
+				<button class="btn btn-default btn-sm search-mail-btn" title="Search Google Mail">
+					<i class="fa fa-envelope"></i> Mail
+				</button>
 				<textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
 				<button class="btn btn-primary send-btn">Send</button>
 			</div>
@@ -71,6 +77,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 	let help_btn = $(page.body).find('.help-btn');
     let thoughts_area = $(page.body).find('.gemini-thoughts-area');
     let thoughts_content = $(page.body).find('.thoughts-content');
+    let search_drive_btn = $(page.body).find('.search-drive-btn');
+    let search_mail_btn = $(page.body).find('.search-mail-btn');
     let conversation = [];
 
     page.model_selector = frappe.ui.form.make_control({
@@ -200,6 +208,68 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             }
         });
     };
+
+    const open_search_modal = (search_type) => {
+        let dialog = new frappe.ui.Dialog({
+            title: `Search ${search_type}`,
+            fields: [
+                {
+                    label: 'Search Query',
+                    fieldname: 'search_query',
+                    fieldtype: 'Data'
+                },
+                {
+                    label: 'Results',
+                    fieldname: 'results',
+                    fieldtype: 'HTML'
+                }
+            ],
+            primary_action_label: 'Search',
+            primary_action: (values) => {
+                let method = search_type === 'Google Drive' ? 'search_drive' : 'search_mail';
+                frappe.call({
+                    method: `gemini_integration.api.${method}`,
+                    args: {
+                        query: values.search_query
+                    },
+                    callback: function(r) {
+                        let results_html = '';
+                        if (r.message && r.message.length > 0) {
+                            results_html += '<ul class="list-group">';
+                            r.message.forEach(item => {
+                                let title = search_type === 'Google Drive' ? item.name : item.payload.headers.find(h => h.name === 'Subject').value;
+                                let id = item.id;
+                                results_html += `<li class="list-group-item"><a href="#" data-id="${id}" data-type="${search_type}">${title}</a></li>`;
+                            });
+                            results_html += '</ul>';
+                        } else {
+                            results_html = 'No results found.';
+                        }
+                        dialog.get_field('results').$wrapper.html(results_html);
+                    }
+                });
+            }
+        });
+
+        dialog.show();
+
+        dialog.get_field('results').$wrapper.on('click', 'a', function(e) {
+            e.preventDefault();
+            let id = $(this).data('id');
+            let type = $(this).data('type');
+            let ref = type === 'Google Drive' ? `@gdrive/${id}` : `@gmail/${id}`;
+            chat_input.val(chat_input.val() + ' ' + ref);
+            dialog.hide();
+        });
+    };
+
+    search_drive_btn.on('click', () => {
+        open_search_modal('Google Drive');
+    });
+
+    search_mail_btn.on('click', () => {
+        open_search_modal('Google Mail');
+    });
 
     const add_to_history = (role, text) => {
         let bubble = $(`<div class="chat-bubble ${role}"></div>`);
