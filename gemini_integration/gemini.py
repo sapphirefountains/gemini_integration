@@ -5,6 +5,7 @@ import re
 import json
 import base64
 from datetime import datetime, timedelta
+from thefuzz import process
 
 # Google API Imports
 from google_auth_oauthlib.flow import Flow
@@ -62,10 +63,19 @@ def get_doc_context(doctype, docname):
         context += f"\nLink: {doc_url}"
         return context
     except frappe.DoesNotExistError:
-        return f"(System: Document '{docname}' of type '{doctype}' not found.)\n"
+        # If the document is not found, try to find the best match using fuzzy search
+        all_docs = frappe.get_all(doctype, fields=['name'])
+        all_doc_names = [d['name'] for d in all_docs]
+        
+        best_match = process.extractOne(docname, all_doc_names)
+        if best_match and best_match[1] > 80: # 80 is a good threshold for confidence
+            return f"(System: Document '{docname}' of type '{doctype}' not found. Did you mean '{best_match[0]}'?)\n"
+        else:
+            return f"(System: Document '{docname}' of type '{doctype}' not found.)\n"
     except Exception as e:
         frappe.log_error(f"Error fetching doc context: {str(e)}")
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
+
 
 def get_dynamic_doctype_map():
     """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
@@ -560,7 +570,8 @@ def generate_tasks(project_id, template):
     Project Details: {json.dumps(project_details, indent=2, default=str)}
     
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "subject" and "description".
-    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...]    """
+    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...] 
+    """
     
     response_text = generate_text(prompt)
     try:
@@ -582,7 +593,8 @@ def analyze_risks(project_id):
     Project Details: {json.dumps(project_details, indent=2, default=str)}
     
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "risk_name" (a short title) and "risk_description".
-    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...]    """
+    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...] 
+    """
     
     response_text = generate_text(prompt)
     try:
@@ -590,3 +602,52 @@ def analyze_risks(project_id):
         return risks
     except json.JSONDecodeError:
         return {"error": "Failed to parse a JSON response from the AI. Please try again."}
+
+def unified_search(query):
+    """Performs a unified search across ERPNext, Google Drive, and Gmail."""
+    results = []
+    
+    # Search ERPNext DocTypes
+    doctypes_to_search = ["Project", "Task", "Customer", "Supplier", "Quotation", "Sales Order", "Sales Invoice"]
+    for doctype in doctypes_to_search:
+        try:
+            docs = frappe.get_all(doctype, filters={'name': ['like', f'%{query}%']}, fields=['name'])
+            for doc in docs:
+                results.append({
+                    "type": doctype,
+                    "title": doc.name,
+                    "link": get_url_to_form(doctype, doc.name)
+                })
+        except Exception as e:
+            frappe.log_error(f"Error searching {doctype}: {e}")
+            
+    # Search Google Workspace
+    creds = get_user_credentials()
+    if creds:
+        # Search Drive
+        drive_results = search_drive(creds, query)
+        if "Recent files" in drive_results:
+             for line in drive_results.splitlines():
+                if "Name:" in line:
+                    parts = line.split(',')
+                    title = parts[0].replace("- Name:", "").strip()
+                    link = parts[1].replace("Link:", "").strip()
+                    results.append({
+                        "type": "Google Drive",
+                        "title": title,
+                        "link": link
+                    })
+
+        # Search Gmail
+        gmail_results = search_gmail(creds, query)
+        if "Recent emails" in gmail_results:
+            for line in gmail_results.splitlines():
+                if "Subject:" in line:
+                    title = line.replace("- Subject:", "").strip()
+                    results.append({
+                        "type": "Gmail",
+                        "title": title,
+                        "link": "#" # Gmail doesn't provide direct links in the API
+                    })
+                    
+    return results
