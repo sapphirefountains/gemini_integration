@@ -469,7 +469,7 @@ def search_google_mail(credentials, query):
         service = build('gmail', 'v1', credentials=credentials)
         
         if query.strip():
-            search_query = f'"{query}"' in:anywhere'
+            search_query = f'"{query}" in:anywhere'
         else:
             search_query = 'in:inbox'
         
