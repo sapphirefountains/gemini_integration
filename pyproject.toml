@@ -6,7 +6,7 @@ authors = [
 description = "Google Gemini integration with Frappe ERPNext 15."
 requires-python = ">=3.10"
 readme = "README.md"
-version = "0.9.0"
+dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     # Add Google Generative AI dependency
@@ -19,12 +19,6 @@ dependencies = [
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
-
-[tool.frappe.build]
-js = [
-    "gemini_integration/page/gemini_chat/gemini_chat.js",
-    "gemini_integration/page/gemini_integration/gemini_integration_page.js"
-]
 
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
