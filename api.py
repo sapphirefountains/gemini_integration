@@ -6,7 +6,10 @@ from gemini_integration.gemini import (
     analyze_risks,
     get_google_auth_url,
     process_google_callback,
-    is_google_integrated
+    is_google_integrated,
+    search_google_drive,
+    search_google_mail,
+    get_user_credentials
 )
 
 @frappe.whitelist()
@@ -47,7 +50,17 @@ def check_google_integration():
     return is_google_integrated()
 
 @frappe.whitelist()
-def search(query):
-    """Endpoint for unified search."""
-    from gemini_integration.gemini import unified_search
-    return unified_search(query)
+def search_drive(query):
+    """Endpoint for searching Google Drive."""
+    creds = get_user_credentials()
+    if not creds:
+        frappe.throw("Google account not integrated.")
+    return search_google_drive(creds, query)
+
+@frappe.whitelist()
+def search_mail(query):
+    """Endpoint for searching Google Mail."""
+    creds = get_user_credentials()
+    if not creds:
+        frappe.throw("Google account not integrated.")
+    return search_google_mail(creds, query)
