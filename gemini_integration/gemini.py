@@ -369,6 +369,68 @@ def search_calendar(credentials, query):
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
 
+def search_google_drive(credentials, query):
+    """Searches Google Drive for a query and returns a list of files."""
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        
+        if query.strip():
+            search_params = {'q': f"fullText contains '{query}'"}
+        else:
+            search_params = {'orderBy': 'modifiedTime desc'}
+
+        results = service.files().list(
+            pageSize=10,
+            fields="nextPageToken, files(id, name, webViewLink)",
+            corpora='allDrives',
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+            **search_params
+        ).execute()
+        items = results.get('files', [])
+
+        return items
+    except HttpError as error:
+        return f"An error occurred with Google Drive: {error}"
+
+def search_google_mail(credentials, query):
+    """Searches Gmail for a query and returns a list of emails."""
+    try:
+        service = build('gmail', 'v1', credentials=credentials)
+        
+        if query.strip():
+            search_query = f'"{query}" in:anywhere'
+        else:
+            search_query = 'in:inbox'
+        
+        results = service.users().messages().list(userId='me', q=search_query, maxResults=10).execute()
+        messages = results.get('messages', [])
+        
+        email_data = []
+        if not messages:
+            return []
+
+        batch = service.new_batch_http_request()
+        
+        def create_callback(msg_id):
+            def callback(request_id, response, exception):
+                if not exception:
+                    email_data.append(response)
+            return callback
+
+        for msg in messages:
+            msg_id = msg['id']
+            batch.add(
+                service.users().messages().get(userId='me', id=msg_id, format='metadata', metadataHeaders=['Subject', 'From', 'Date']),
+                callback=create_callback(msg_id)
+            )
+        
+        batch.execute()
+
+        return email_data
+    except HttpError as error:
+        return f"An API error occurred during Gmail search: {error}"
+
 def get_drive_file_context(credentials, file_id):
     """Fetches a Drive file's metadata and content, supporting Shared Drives."""
     try:
