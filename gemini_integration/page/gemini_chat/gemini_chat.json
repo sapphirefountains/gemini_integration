@@ -6,7 +6,7 @@
  "idx": 0,
  "modified": "2024-03-16 11:00:00.000000",
  "modified_by": "Administrator",
- "module": "Gemini Integration",
+ "module": "gemini_integration",
  "name": "gemini-chat",
  "owner": "Administrator",
  "page_name": "gemini-chat",
