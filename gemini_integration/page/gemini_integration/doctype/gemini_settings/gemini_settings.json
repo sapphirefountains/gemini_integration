@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-08-30 13:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "api_key",
+  "model",
+  "system_instruction"
+ ],
+ "fields": [
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Data",
+   "label": "API Key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Select",
+   "label": "Default Model",
+   "options": "gemini-2.5-pro\ngemini-2.5-flash",
+   "default": "gemini-2.5-flash"
+  },
+  {
+   "fieldname": "system_instruction",
+   "fieldtype": "Text",
+   "label": "System Instruction"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-08-30 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gemini Integration",
+ "name": "Gemini Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
+
