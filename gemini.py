@@ -76,7 +76,6 @@ def get_doc_context(doctype, docname):
         frappe.log_error(f"Error fetching doc context: {str(e)}")
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
-
 def get_dynamic_doctype_map():
     """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
     
@@ -533,6 +532,14 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += "\n"
             google_context += search_drive(creds, search_prompt)
 
+    # Assemble thoughts for the UI
+    thoughts = ""
+    if full_context:
+        thoughts += f"--- ERPNext Data Context ---\n{full_context}\n"
+    
+    if google_context:
+        thoughts += f"--- Google Workspace Data Context ---\n{google_context}\n"
+
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
     clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
@@ -544,16 +551,17 @@ def generate_chat_response(prompt, model=None, conversation=None):
     if system_instruction:
         final_prompt += f"System Instruction: {system_instruction}\n\n"
     
-    if full_context:
-        final_prompt += f"--- ERPNext Data Context ---\n{full_context}\n"
-    
-    if google_context:
-        final_prompt += f"--- Google Workspace Data Context ---\n{google_context}\n"
+    if thoughts:
+        final_prompt += thoughts
 
     final_prompt += f"User query: {clean_prompt}\n"
     final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
 
-    return generate_text(final_prompt, model)
+    response_text = generate_text(final_prompt, model)
+    return {
+        "response": response_text,
+        "thoughts": thoughts.strip() if thoughts else ""
+    }
 
 
 # --- PROJECT-SPECIFIC FUNCTIONS ---
@@ -570,8 +578,7 @@ def generate_tasks(project_id, template):
     Project Details: {json.dumps(project_details, indent=2, default=str)}
     
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "subject" and "description".
-    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...] 
-    """
+    Example: [{{"subject": "Initial client meeting", "description": "Discuss project scope and deliverables."}}, ...]    """
     
     response_text = generate_text(prompt)
     try:
@@ -593,8 +600,7 @@ def analyze_risks(project_id):
     Project Details: {json.dumps(project_details, indent=2, default=str)}
     
     Please return ONLY a valid JSON list of objects. Each object should have two keys: "risk_name" (a short title) and "risk_description".
-    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...] 
-    """
+    Example: [{{"risk_name": "Scope Creep", "risk_description": "The project description is vague, which could lead to additional client requests not in the original scope."}}, ...]    """
     
     response_text = generate_text(prompt)
     try:
@@ -602,52 +608,3 @@ def analyze_risks(project_id):
         return risks
     except json.JSONDecodeError:
         return {"error": "Failed to parse a JSON response from the AI. Please try again."}
-
-def unified_search(query):
-    """Performs a unified search across ERPNext, Google Drive, and Gmail."""
-    results = []
-    
-    # Search ERPNext DocTypes
-    doctypes_to_search = ["Project", "Task", "Customer", "Supplier", "Quotation", "Sales Order", "Sales Invoice"]
-    for doctype in doctypes_to_search:
-        try:
-            docs = frappe.get_all(doctype, filters={'name': ['like', f'%{query}%']}, fields=['name'])
-            for doc in docs:
-                results.append({
-                    "type": doctype,
-                    "title": doc.name,
-                    "link": get_url_to_form(doctype, doc.name)
-                })
-        except Exception as e:
-            frappe.log_error(f"Error searching {doctype}: {e}")
-            
-    # Search Google Workspace
-    creds = get_user_credentials()
-    if creds:
-        # Search Drive
-        drive_results = search_drive(creds, query)
-        if "Recent files" in drive_results:
-             for line in drive_results.splitlines():
-                if "Name:" in line:
-                    parts = line.split(',')
-                    title = parts[0].replace("- Name:", "").strip()
-                    link = parts[1].replace("Link:", "").strip()
-                    results.append({
-                        "type": "Google Drive",
-                        "title": title,
-                        "link": link
-                    })
-
-        # Search Gmail
-        gmail_results = search_gmail(creds, query)
-        if "Recent emails" in gmail_results:
-            for line in gmail_results.splitlines():
-                if "Subject:" in line:
-                    title = line.replace("- Subject:", "").strip()
-                    results.append({
-                        "type": "Gmail",
-                        "title": title,
-                        "link": "#" # Gmail doesn't provide direct links in the API
-                    })
-                    
-    return results
