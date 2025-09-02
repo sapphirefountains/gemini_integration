@@ -7,7 +7,8 @@
  "field_order": [
   "api_key",
   "model",
-  "system_instruction"
+  "system_instruction",
+  "log_level"
  ],
  "fields": [
   {
@@ -27,6 +28,13 @@
    "fieldname": "system_instruction",
    "fieldtype": "Text",
    "label": "System Instruction"
+  },
+  {
+   "fieldname": "log_level",
+   "fieldtype": "Select",
+   "label": "Log Level",
+   "options": "Debug\nInfo\nWarning\nError",
+   "default": "Error"
   }
  ],
  "issingle": 1,
