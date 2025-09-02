@@ -8,6 +8,8 @@ import base64
 from datetime import datetime, timedelta
 from thefuzz import process
 
+from gemini_integration.utils import handle_errors, log_activity
+
 # Google API Imports
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -16,6 +18,8 @@ from googleapiclient.errors import HttpError
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
 
+@log_activity
+@handle_errors
 def configure_gemini():
     """Configures the Google Generative AI client with the API key from settings."""
     settings = frappe.get_single("Gemini Settings")
@@ -30,6 +34,8 @@ def configure_gemini():
         frappe.log_error(f"Failed to configure Gemini: {str(e)}", "Gemini Integration")
         return None
 
+@log_activity
+@handle_errors
 def generate_text(prompt, model_name=None, uploaded_files=None):
     """Generates text using a specified Gemini model."""
     if not configure_gemini():
@@ -51,6 +57,8 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 
 # --- DYNAMIC DOCTYPE REFERENCING (@DOC-NAME) ---
 
+@log_activity
+@handle_errors
 def get_doc_context(doctype, docname):
     """Fetches and formats a document's data for context."""
     try:
@@ -80,6 +88,8 @@ def get_doc_context(doctype, docname):
         frappe.log_error(f"Error fetching doc context: {str(e)}")
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
+@log_activity
+@handle_errors
 def find_best_match_for_doctype(doctype_name):
     """Finds the best match for a DocType name using fuzzy search."""
     all_doctypes = frappe.get_all("DocType", fields=["name"])
@@ -90,6 +100,8 @@ def find_best_match_for_doctype(doctype_name):
         return best_match[0]
     return None
 
+@log_activity
+@handle_errors
 def search_erpnext_documents(doctype, query, limit=1000):
     """Searches for documents in ERPNext with a query and returns a list of documents."""
     try:
@@ -125,6 +137,8 @@ def search_erpnext_documents(doctype, query, limit=1000):
 
 
 
+@log_activity
+@handle_errors
 def get_dynamic_doctype_map():
     """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
     
@@ -166,6 +180,8 @@ def get_dynamic_doctype_map():
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
 
+@log_activity
+@handle_errors
 def get_google_settings():
     """Retrieves Google settings from Social Login Keys."""
     settings = frappe.get_doc("Social Login Key", "Google")
@@ -173,6 +189,8 @@ def get_google_settings():
         frappe.throw("Google Login is not enabled in Social Login Keys.")
     return settings
 
+@log_activity
+@handle_errors
 def get_google_flow():
     """Builds the Google OAuth 2.0 Flow object for authentication."""
     settings = get_google_settings()
@@ -194,6 +212,8 @@ def get_google_flow():
     ]
     return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
 
+@log_activity
+@handle_errors
 def get_google_auth_url():
     """Generates the authorization URL for the user to grant consent."""
     flow = get_google_flow()
@@ -202,6 +222,8 @@ def get_google_auth_url():
     frappe.cache().set_value(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
     return authorization_url
 
+@log_activity
+@handle_errors
 def process_google_callback(code, state, error):
     """Handles the OAuth callback from Google, exchanges the code for tokens, and stores them."""
     if error:
@@ -255,10 +277,14 @@ def process_google_callback(code, state, error):
         indicator_color="green"
     )
 
+@log_activity
+@handle_errors
 def is_google_integrated():
     """Checks if a valid token exists for the current user."""
     return frappe.db.exists("Google User Token", {"user": frappe.session.user})
 
+@log_activity
+@handle_errors
 def get_user_credentials():
     """Retrieves stored credentials for the current user from the database."""
     if not is_google_integrated():
@@ -279,6 +305,8 @@ def get_user_credentials():
 
 # --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
 
+@log_activity
+@handle_errors
 def search_gmail(credentials, query):
     """Searches Gmail for a query and returns message subjects and snippets."""
     try:
@@ -332,6 +360,8 @@ def search_gmail(credentials, query):
         )
         return "An API error occurred during Gmail search. Please check the Error Log for details.\n"
 
+@log_activity
+@handle_errors
 def search_drive(credentials, query):
     """Searches Google Drive for a query or lists recent files."""
     try:
@@ -362,6 +392,8 @@ def search_drive(credentials, query):
     except HttpError as error:
         return f"An error occurred with Google Drive: {error}"
 
+@log_activity
+@handle_errors
 def search_calendar(credentials, query):
     """Lists upcoming calendar events for the next 7 days."""
     try:
@@ -403,6 +435,8 @@ def search_calendar(credentials, query):
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
 
+@log_activity
+@handle_errors
 def search_google_drive(credentials, query):
     """Searches Google Drive for a query and returns a list of files."""
     try:
@@ -427,13 +461,15 @@ def search_google_drive(credentials, query):
     except HttpError as error:
         return f"An error occurred with Google Drive: {error}"
 
+@log_activity
+@handle_errors
 def search_google_mail(credentials, query):
     """Searches Gmail for a query and returns a list of emails."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
         
         if query.strip():
-            search_query = f'"{query}" in:anywhere'
+            search_query = f'"{query}"' in:anywhere'
         else:
             search_query = 'in:inbox'
         
@@ -465,6 +501,27 @@ def search_google_mail(credentials, query):
     except HttpError as error:
         return f"An API error occurred during Gmail search: {error}"
 
+@log_activity
+@handle_errors
+def get_drive_file_for_analysis(credentials, file_id):
+    """Gets a Google Drive file, uploads it to Gemini, and returns the file reference."""
+    try:
+        # Get the file content from Google Drive
+        file_content = get_drive_file_context(credentials, file_id)
+        
+        if file_content:
+            # Upload the file to Gemini
+            uploaded_file = upload_file_to_gemini(file_id, file_content)
+            if uploaded_file:
+                # Store the file reference in the cache
+                frappe.cache().set_value(f"gemini_file_{file_id}", uploaded_file)
+                return uploaded_file
+    except Exception as e:
+        frappe.log_error(f"Error getting drive file for analysis: {str(e)}")
+        return None
+
+@log_activity
+@handle_errors
 def get_drive_file_context(credentials, file_id):
     """Fetches a Drive file's metadata and content, supporting Shared Drives."""
     try:
@@ -506,6 +563,8 @@ def get_drive_file_context(credentials, file_id):
         frappe.log_error(f"Error fetching drive file context for {file_id}: {str(e)}")
         return f"(System: Could not retrieve context for Google Drive file {file_id}.)\n"
 
+@log_activity
+@handle_errors
 def get_gmail_message_context(credentials, message_id):
     """Fetches a specific Gmail message's headers and body."""
     try:
@@ -541,6 +600,8 @@ def get_gmail_message_context(credentials, message_id):
         frappe.log_error(f"Error fetching gmail context for {message_id}: {str(e)}")
         return f"(System: Could not retrieve context for Gmail message {message_id}.)\n"
 
+@log_activity
+@handle_errors
 def upload_file_to_gemini(file_name, file_content):
     """Uploads a file to the Gemini API."""
     try:
@@ -554,6 +615,8 @@ def upload_file_to_gemini(file_name, file_content):
         frappe.log_error(f"Gemini File API Error: {str(e)}", "Gemini Integration")
         return None
 
+@log_activity
+@handle_errors
 def get_erpnext_file_content(file_url):
     """Gets the content of an ERPNext file."""
     try:
@@ -565,6 +628,8 @@ def get_erpnext_file_content(file_url):
         return None
 
 # --- MAIN CHAT FUNCTIONALITY ---
+@log_activity
+@handle_errors
 def generate_chat_response(prompt, model=None, conversation=None):
     """Handles chat interactions by assembling context from ERPNext and Google Workspace."""
     
@@ -660,12 +725,18 @@ def generate_chat_response(prompt, model=None, conversation=None):
         erpnext_file_refs = re.findall(r'@file/([\w\d\/\.-]+)', prompt)
 
         for file_id in gdrive_refs:
-            file_content = get_drive_file_context(creds, file_id)
-            if file_content:
-                uploaded_file = upload_file_to_gemini(file_id, file_content)
-                if uploaded_file:
-                    uploaded_files.append(uploaded_file)
-                    google_context += f"(System: Uploaded Google Drive file '{file_id}' for analysis.)\n"
+            # Get the file reference from the cache
+            uploaded_file = frappe.cache().get_value(f"gemini_file_{file_id}")
+            if uploaded_file:
+                uploaded_files.append(uploaded_file)
+                google_context += f"(System: Using uploaded Google Drive file '{file_id}' for analysis.)\n"
+            else:
+                file_content = get_drive_file_context(creds, file_id)
+                if file_content:
+                    uploaded_file = upload_file_to_gemini(file_id, file_content)
+                    if uploaded_file:
+                        uploaded_files.append(uploaded_file)
+                        google_context += f"(System: Uploaded Google Drive file '{file_id}' for analysis.)\n"
 
         for file_url in erpnext_file_refs:
             file_content = get_erpnext_file_content(file_url)
@@ -742,6 +813,8 @@ def generate_chat_response(prompt, model=None, conversation=None):
 
 
 # --- PROJECT-SPECIFIC FUNCTIONS ---
+@log_activity
+@handle_errors
 def generate_tasks(project_id, template):
     """Generates a list of tasks for a project using Gemini."""
     if not frappe.db.exists("Project", project_id):
@@ -764,6 +837,8 @@ def generate_tasks(project_id, template):
     except json.JSONDecodeError:
         return {"error": "Failed to parse a valid JSON response from the AI. Please try again."}
 
+@log_activity
+@handle_errors
 def analyze_risks(project_id):
     """Analyzes a project for potential risks using Gemini."""
     if not frappe.db.exists("Project", project_id):
