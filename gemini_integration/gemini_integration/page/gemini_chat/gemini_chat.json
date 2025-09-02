@@ -11,9 +11,6 @@
  "owner": "Administrator",
  "page_name": "gemini-chat",
  "roles": [
-  {
-   "role": "System Manager"
-  }
  ],
  "script": "gemini_chat.bundle.js",
  "standard": "Yes",
