@@ -128,10 +128,10 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         if (last_model) {
             page.model_selector.set_value(last_model);
         } else {
-            page.model_selector.set_value('gemini-1.5-flash');
+            page.model_selector.set_value('gemini-2.5-flash');
         }
     } else {
-        page.model_selector.set_value('gemini-1.5-flash');
+        page.model_selector.set_value('gemini-2.5-flash');
     }
     
     frappe.call({
