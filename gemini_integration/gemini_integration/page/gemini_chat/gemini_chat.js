@@ -16,6 +16,30 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 		.chat-input-area textarea { flex-grow: 1; }
         .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
         .google-connect-btn { margin-left: auto; }
+		.gemini-thoughts-area {
+			margin-bottom: 15px;
+			padding: 15px;
+			background-color: #f3f4f6;
+			border: 1px solid #e5e7eb;
+			border-radius: 8px;
+		}
+		.gemini-thoughts-area h6 {
+			margin-top: 0;
+			margin-bottom: 10px;
+			color: #4b5563;
+			font-weight: 600;
+		}
+		.gemini-thoughts-area .thoughts-content {
+			white-space: pre-wrap;
+			word-wrap: break-word;
+			max-height: 200px;
+			overflow-y: auto;
+			background-color: #fff;
+			padding: 10px;
+			border-radius: 4px;
+			font-family: monospace;
+			font-size: 12px;
+		}
 	`;
 	$('<style>').text(styles).appendTo('head');
 
@@ -27,6 +51,10 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 				</button>
                 <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
             </div>
+			<div class="gemini-thoughts-area" style="display: none;">
+				<h6>Gemini's Thoughts (Context Provided to AI)</h6>
+				<pre class="thoughts-content"></pre>
+			</div>
 			<div class="chat-history"></div>
 			<div class="chat-input-area">
 				<textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
@@ -41,6 +69,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     let send_btn = $(page.body).find('.send-btn');
     let google_connect_btn = $(page.body).find('.google-connect-btn');
 	let help_btn = $(page.body).find('.help-btn');
+    let thoughts_area = $(page.body).find('.gemini-thoughts-area');
+    let thoughts_content = $(page.body).find('.thoughts-content');
     let conversation = [];
 
     page.model_selector = frappe.ui.form.make_control({
@@ -129,6 +159,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         let prompt = chat_input.val().trim();
         if (!prompt) return;
 
+        thoughts_area.hide();
+
         add_to_history('user', prompt);
         chat_input.val('');
         
@@ -147,8 +179,15 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             },
             callback: function(r) {
                 loading.hide();
-                let response_text = r.message;
-                add_to_history('gemini', response_text);
+                if (typeof r.message === 'object' && r.message.response) {
+                    if (r.message.thoughts) {
+                        thoughts_content.text(r.message.thoughts);
+                        thoughts_area.show();
+                    }
+                    add_to_history('gemini', r.message.response);
+                } else {
+                    add_to_history('gemini', r.message);
+                }
             },
             error: function(r) {
                 loading.hide();
