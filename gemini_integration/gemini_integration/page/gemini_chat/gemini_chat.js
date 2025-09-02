@@ -239,7 +239,10 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                             r.message.forEach(item => {
                                 let title = search_type === 'Google Drive' ? item.name : item.payload.headers.find(h => h.name === 'Subject').value;
                                 let id = item.id;
-                                results_html += `<li class="list-group-item"><a href="#" data-id="${id}" data-type="${search_type}">${title}</a></li>`;
+                                results_html += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                                                    <a href="#" data-id="${id}" data-type="${search_type}">${title}</a>
+                                                    <button class="btn btn-primary btn-sm analyze-btn" data-id="${id}">Analyze</button>
+                                                </li>`;
                             });
                             results_html += '</ul>';
                         } else {
@@ -260,6 +263,24 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             let ref = type === 'Google Drive' ? `@gdrive/${id}` : `@gmail/${id}`;
             chat_input.val(chat_input.val() + ' ' + ref);
             dialog.hide();
+        });
+
+        dialog.get_field('results').$wrapper.on('click', '.analyze-btn', function(e) {
+            e.preventDefault();
+            let id = $(this).data('id');
+            frappe.call({
+                method: 'gemini_integration.api.get_drive_file_for_analysis',
+                args: {
+                    file_id: id
+                },
+                callback: function(r) {
+                    if (r.message) {
+                        let ref = `@gdrive/${r.message.name}`;
+                        chat_input.val(chat_input.val() + ' ' + ref);
+                        dialog.hide();
+                    }
+                }
+            });
         });
     };
 
