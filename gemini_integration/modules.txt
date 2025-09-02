@@ -1,1 +1,3 @@
-Gemini Integration
+Gemini Settings
+Google User Token
+Gemini Conversation

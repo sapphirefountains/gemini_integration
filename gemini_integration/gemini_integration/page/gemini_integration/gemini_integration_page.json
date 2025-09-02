@@ -1,20 +1,23 @@
 {
  "content": null,
- "creation": "2024-03-16 11:00:00.000000",
+ "creation": "2024-03-15 10:10:00.000000",
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2024-03-16 11:00:00.000000",
+ "modified": "2024-03-15 10:10:00.000000",
  "modified_by": "Administrator",
  "module": "Gemini Integration",
- "name": "gemini-chat",
+ "name": "gemini-integration",
  "owner": "Administrator",
- "page_name": "gemini-chat",
- 
- "script": "gemini_chat.bundle.js",
+ "page_name": "gemini-integration",
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ],
+ "script": "gemini_integration.bundle.js",
  "standard": "Yes",
- "style": "gemini_chat.bundle.css",
+ "style": "gemini_integration.bundle.css",
  "system_page": 0,
- "title": "Gemini Chat"
+ "title": "Gemini Integration"
 }
-

@@ -1,0 +1,45 @@
+
+{
+    "name": "Gemini Conversation",
+    "engine": "InnoDB",
+    "istable": 1,
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "submit": 0,
+            "cancel": 0,
+            "amend": 0,
+            "print": 1,
+            "email": 1,
+            "report": 1,
+            "import": 0,
+            "export": 1,
+            "share": 1
+        }
+    ],
+    "fields": [
+        {
+            "fieldname": "title",
+            "fieldtype": "Data",
+            "label": "Title",
+            "reqd": 1
+        },
+        {
+            "fieldname": "user",
+            "fieldtype": "Link",
+            "label": "User",
+            "options": "User",
+            "reqd": 1,
+            "default": "__user"
+        },
+        {
+            "fieldname": "conversation",
+            "fieldtype": "Long Text",
+            "label": "Conversation"
+        }
+    ]
+}

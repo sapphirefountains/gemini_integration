@@ -469,7 +469,7 @@ def search_google_mail(credentials, query):
         service = build('gmail', 'v1', credentials=credentials)
         
         if query.strip():
-            search_query = f'"{query}"' in:anywhere'
+            search_query = f'"'{query}"' in:anywhere'
         else:
             search_query = 'in:inbox'
         
@@ -630,9 +630,19 @@ def get_erpnext_file_content(file_url):
 # --- MAIN CHAT FUNCTIONALITY ---
 @log_activity
 @handle_errors
-def generate_chat_response(prompt, model=None, conversation=None):
+def generate_chat_response(prompt, model=None, conversation_id=None):
     """Handles chat interactions by assembling context from ERPNext and Google Workspace."""
     
+    conversation_history = []
+    if conversation_id:
+        try:
+            conversation_doc = frappe.get_doc("Gemini Conversation", conversation_id)
+            if conversation_doc.conversation:
+                conversation_history = json.loads(conversation_doc.conversation)
+        except frappe.DoesNotExistError:
+            # Conversation not found, will create a new one
+            pass
+
     # 1. Find all ERPNext document references starting with '@'
     references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
@@ -797,6 +807,11 @@ def generate_chat_response(prompt, model=None, conversation=None):
     if thoughts:
         final_prompt.append(thoughts)
 
+    # Add conversation history to the prompt
+    if conversation_history:
+        for entry in conversation_history:
+            final_prompt.append(f"{entry['role']}: {entry['text']}")
+
     final_prompt.append(f"User query: {clean_prompt}")
     final_prompt.append("\nBased on the user query and any provided context, please provide a helpful and comprehensive response.")
 
@@ -804,10 +819,33 @@ def generate_chat_response(prompt, model=None, conversation=None):
         final_prompt.extend(uploaded_files)
 
     response_text = generate_text(final_prompt, model, uploaded_files)
+
+    # Save the conversation
+    conversation_history.append({"role": "user", "text": prompt})
+    conversation_history.append({"role": "gemini", "text": response_text})
+    conversation_id = save_conversation(conversation_id, prompt, conversation_history)
+
     return {
         "response": response_text,
-        "thoughts": thoughts.strip() if thoughts else ""
+        "thoughts": thoughts.strip() if thoughts else "",
+        "conversation_id": conversation_id
     }
+
+
+def save_conversation(conversation_id, title, conversation):
+    if not conversation_id:
+        # Create a new conversation
+        doc = frappe.new_doc("Gemini Conversation")
+        doc.title = title[:140]
+        doc.user = frappe.session.user
+    else:
+        # Update an existing conversation
+        doc = frappe.get_doc("Gemini Conversation", conversation_id)
+    
+    doc.conversation = json.dumps(conversation)
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return doc.name
 
 
 

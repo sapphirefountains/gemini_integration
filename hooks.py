@@ -26,7 +26,7 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/gemini_integration/css/gemini_integration.css"
-app_include_js = "/assets/gemini_integration/js/gemini_integration.js"
+# app_include_js = "/assets/gemini_integration/js/gemini_integration.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/gemini_integration/css/gemini_integration.css"
@@ -109,7 +109,13 @@ app_include_js = "/assets/gemini_integration/js/gemini_integration.js"
 
 # Desk Notifications
 # ------------------
-# See frappe.core.notifications..get_notification_config"
+# See frappe.core.notifications.get_notification_config
+
+# notification_config = "gemini_integration.notifications.get_notification_config"
+
+# Permissions
+# -----------
+# Permissions evaluated in scripted ways
 
 # permission_query_conditions = {
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
@@ -235,3 +241,4 @@ app_include_js = "/assets/gemini_integration/js/gemini_integration.js"
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
+

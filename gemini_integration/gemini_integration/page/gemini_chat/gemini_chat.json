@@ -10,11 +10,7 @@
  "name": "gemini-chat",
  "owner": "Administrator",
  "page_name": "gemini-chat",
- "roles": [
-  {
-   "role": "Employee"
-  }
- ],
+ 
  "script": "gemini_chat.bundle.js",
  "standard": "Yes",
  "style": "gemini_chat.bundle.css",

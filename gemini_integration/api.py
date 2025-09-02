@@ -24,11 +24,11 @@ def generate(prompt, model=None):
 @frappe.whitelist()
 @log_activity
 @handle_errors
-def chat(prompt=None, model=None, conversation=None):
+def chat(prompt=None, model=None, conversation_id=None):
     """Endpoint for the main chat functionality."""
     if not prompt:
         frappe.throw("A prompt is required.")
-    return generate_chat_response(prompt, model, conversation)
+    return generate_chat_response(prompt, model, conversation_id)
 
 @frappe.whitelist()
 @log_activity
@@ -94,3 +94,19 @@ def get_drive_file_for_analysis(file_id):
     if not creds:
         frappe.throw("Google account not integrated.")
     return get_drive_file_for_analysis(creds, file_id)
+
+@frappe.whitelist()
+def get_conversations():
+    return frappe.get_all(
+        "Gemini Conversation",
+        filters={"user": frappe.session.user},
+        fields=["name", "title"],
+        order_by="modified desc"
+    )
+
+@frappe.whitelist()
+def get_conversation(conversation_id):
+    doc = frappe.get_doc("Gemini Conversation", conversation_id)
+    if doc.user != frappe.session.user:
+        frappe.throw("You are not authorized to view this conversation.")
+    return doc
