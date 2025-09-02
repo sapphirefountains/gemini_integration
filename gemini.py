@@ -90,6 +90,40 @@ def find_best_match_for_doctype(doctype_name):
         return best_match[0]
     return None
 
+def search_erpnext_documents(doctype, query, limit=1000):
+    """Searches for documents in ERPNext with a query and returns a list of documents."""
+    try:
+        # Get all the text-like fields for the doctype
+        fields = [df.fieldname for df in frappe.get_meta(doctype).fields if df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]]
+        
+        # Get all the documents with the text-like fields
+        all_docs = frappe.get_all(doctype, fields=fields)
+
+        # Extract keywords from the query
+        keywords = re.findall(r'"(.*?)"|\w+', query)
+
+        # Perform a fuzzy search for each keyword
+        matching_docs = []
+        for doc in all_docs:
+            doc_text = " ".join([str(doc.get(field, '')) for field in fields])
+            score = 0
+            for keyword in keywords:
+                score += process.extractOne(keyword, [doc_text])[1]
+            
+            if (score / len(keywords)) > 80: # Average score threshold
+                matching_docs.append({"name": doc.name})
+
+        documents = matching_docs[:limit]
+        
+        disclaimer = f"(System: Searched {len(all_docs)} documents of type '{doctype}' and found {len(documents)} matches up to a limit of {limit}.)\n"
+        
+        return documents, disclaimer
+    except Exception as e:
+        frappe.log_error(f"Error searching ERPNext documents: {str(e)}")
+        return [], f"(System: Could not search for documents of type '{doctype}'.)\n"
+
+
+
 
 def get_dynamic_doctype_map():
     """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
@@ -543,6 +577,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
         doctype_map = get_dynamic_doctype_map()
         prefixes = list(doctype_map.keys())
         if prefixes:
+            # Regex to find patterns like 'PRJ-00123' based on known prefixes.
             pattern = r'\b(' + '|'.join(re.escape(p) for p in prefixes) + r')-[\w\d-]+'
             potential_ids = re.findall(pattern, prompt, re.IGNORECASE)
             if potential_ids:
@@ -553,11 +588,37 @@ def generate_chat_response(prompt, model=None, conversation=None):
                     f"For example, try asking: 'What is the current status of {suggestion_str}?'"
                 )
 
+    # 2a. Check for counting/listing queries
+    search_query_match = re.search(r'\b(how many|count|list|show me all)\b', prompt, re.IGNORECASE)
+    if search_query_match:
+        # Extract doctype and query from the prompt
+        # This is a simple implementation and can be improved with more sophisticated NLP techniques
+        try:
+            doctype_match = re.search(r'\b(in|of|from)\s+([a-zA-Z\s]+)\b', prompt, re.IGNORECASE)
+            doctype = doctype_match.group(2).strip()
+            
+            query_match = re.search(r'\b(with|where|that are|which are)\s+(.+)\b', prompt, re.IGNORECASE)
+            query = query_match.group(2).strip()
+
+            documents, disclaimer = search_erpnext_documents(doctype, query)
+            
+            full_context = ""
+            if documents:
+                full_context += f"Found {len(documents)} documents of type '{doctype}' matching your query:\n"
+                for doc in documents:
+                    full_context += f"- {doc.name}\n"
+                full_context += "\n"
+            
+            full_context += disclaimer
+
+        except Exception as e:
+            frappe.log_error(f"Error parsing ERPNext search query: {str(e)}")
+
     # 3. Gather context from all found ERPNext references.
-    full_context = ""
     if doc_names:
         doctype_map = get_dynamic_doctype_map()
         all_doctype_names = [d.name for d in frappe.get_all("DocType")]
+        full_context = ""
 
         for doc_name in doc_names:
             doc_name = doc_name.strip()
@@ -640,7 +701,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
 
     # Assemble thoughts for the UI
     thoughts = ""
-    if full_context:
+    if 'full_context' in locals() and full_context:
         thoughts += f"--- ERPNext Data Context ---\n{full_context}\n"
     
     if google_context:
@@ -654,6 +715,10 @@ def generate_chat_response(prompt, model=None, conversation=None):
 
     # 6. Assemble the final prompt with all context.
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
+    if not system_instruction:
+        system_instruction = ""
+    system_instruction += "\nDo not mention permission issues unless you are certain that a permission error is the cause of the problem."
+
     final_prompt = []
     if system_instruction:
         final_prompt.append(f"System Instruction: {system_instruction}")
@@ -672,6 +737,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
         "response": response_text,
         "thoughts": thoughts.strip() if thoughts else ""
     }
+
 
 
 
