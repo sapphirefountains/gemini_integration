@@ -1,8 +1,9 @@
-
 {
     "name": "Gemini Conversation",
     "engine": "InnoDB",
-    "istable": 1,
+    "istable": 0,
+    "doctype": "DocType",
+    "module": "Gemini Integration",
     "permissions": [
         {
             "role": "System Manager",
