@@ -22,7 +22,8 @@ build-backend = "flit_core.buildapi"
 
 [tool.frappe.build]
 js = [
-    "gemini_integration/public/js/gemini_integration.js"
+    "gemini_integration/page/gemini_chat/gemini_chat.js",
+    "gemini_integration/page/gemini_integration/gemini_integration_page.js"
 ]
 
 # These dependencies are only installed when developer mode is enabled
