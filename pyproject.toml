@@ -6,7 +6,7 @@ authors = [
 description = "Google Gemini integration with Frappe ERPNext 15."
 requires-python = ">=3.10"
 readme = "README.md"
-dynamic = ["version"]
+version = "0.9.0"
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     # Add Google Generative AI dependency
