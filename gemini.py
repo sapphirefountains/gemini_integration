@@ -1,5 +1,6 @@
 import frappe
 import google.generativeai as genai
+from google.generativeai import files
 from frappe.utils import get_url_to_form, get_site_url
 import re
 import json
@@ -29,7 +30,7 @@ def configure_gemini():
         frappe.log_error(f"Failed to configure Gemini: {str(e)}", "Gemini Integration")
         return None
 
-def generate_text(prompt, model_name=None):
+def generate_text(prompt, model_name=None, uploaded_files=None):
     """Generates text using a specified Gemini model."""
     if not configure_gemini():
         frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
@@ -39,7 +40,10 @@ def generate_text(prompt, model_name=None):
     
     try:
         model_instance = genai.GenerativeModel(model_name)
-        response = model_instance.generate_content(prompt)
+        if uploaded_files:
+            response = model_instance.generate_content([prompt] + uploaded_files)
+        else:
+            response = model_instance.generate_content(prompt)
         return response.text
     except Exception as e:
         frappe.log_error(f"Gemini API Error: {str(e)}", "Gemini Integration")
@@ -75,6 +79,17 @@ def get_doc_context(doctype, docname):
     except Exception as e:
         frappe.log_error(f"Error fetching doc context: {str(e)}")
         return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
+
+def find_best_match_for_doctype(doctype_name):
+    """Finds the best match for a DocType name using fuzzy search."""
+    all_doctypes = frappe.get_all("DocType", fields=["name"])
+    all_doctype_names = [d["name"] for d in all_doctypes]
+    
+    best_match = process.extractOne(doctype_name, all_doctype_names)
+    if best_match and best_match[1] > 80: # Confidence threshold
+        return best_match[0]
+    return None
+
 
 def get_dynamic_doctype_map():
     """Builds and caches a map of naming series prefixes to DocTypes (e.g., {"PRJ": "Project"}).
@@ -430,30 +445,42 @@ def get_gmail_message_context(credentials, message_id):
         frappe.log_error(f"Error fetching gmail context for {message_id}: {str(e)}")
         return f"(System: Could not retrieve context for Gmail message {message_id}.)\n"
 
+def upload_file_to_gemini(file_name, file_content):
+    """Uploads a file to the Gemini API."""
+    try:
+        # Upload the file to the Gemini API
+        uploaded_file = genai.upload_file(
+            path=file_content,
+            display_name=file_name
+        )
+        return uploaded_file
+    except Exception as e:
+        frappe.log_error(f"Gemini File API Error: {str(e)}", "Gemini Integration")
+        return None
+
+def get_erpnext_file_content(file_url):
+    """Gets the content of an ERPNext file."""
+    try:
+        # Get the file from ERPNext
+        file_doc = frappe.get_doc("File", {"file_url": file_url})
+        return file_doc.get_content()
+    except Exception as e:
+        frappe.log_error(f"ERPNext File Error: {str(e)}", "Gemini Integration")
+        return None
+
 # --- MAIN CHAT FUNCTIONALITY ---
 def generate_chat_response(prompt, model=None, conversation=None):
-    """Handles chat interactions by assembling context from ERPNext and Google Workspace.
-    
-    The process is as follows:
-    1. Look for explicit ERPNext doc references (e.g., @CUST-0001).
-    2. If none, check for things that look like doc IDs but are missing the '@' and guide the user.
-    3. Look for explicit Google Workspace references (e.g., @gdrive/file_id).
-    4. Perform keyword-based or general searches in Google Workspace.
-    5. Assemble all gathered context into a final prompt for the AI.
-    6. Clean all reference syntax from the prompt before sending.
-    """
+    """Handles chat interactions by assembling context from ERPNext and Google Workspace."""
     
     # 1. Find all ERPNext document references starting with '@'
     references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
-    # This prevents hallucinations by catching mistakes and guiding the user.
     if not doc_names:
         doctype_map = get_dynamic_doctype_map()
         prefixes = list(doctype_map.keys())
         if prefixes:
-            # Regex to find patterns like 'PRJ-00123' based on known prefixes.
             pattern = r'\b(' + '|'.join(re.escape(p) for p in prefixes) + r')-[\w\d-]+'
             potential_ids = re.findall(pattern, prompt, re.IGNORECASE)
             if potential_ids:
@@ -481,6 +508,12 @@ def generate_chat_response(prompt, model=None, conversation=None):
                     found_doctype = mapped_doctype
             
             if not found_doctype:
+                # Try to find the doctype by fuzzy matching
+                best_match_doctype = find_best_match_for_doctype(doc_name)
+                if best_match_doctype and frappe.db.exists(best_match_doctype, doc_name):
+                    found_doctype = best_match_doctype
+
+            if not found_doctype:
                 for dt in all_doctype_names:
                     if frappe.db.exists(dt, doc_name):
                         found_doctype = dt
@@ -491,26 +524,37 @@ def generate_chat_response(prompt, model=None, conversation=None):
             else:
                 full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
-    # 4. Gather context from Google Workspace.
+    # 4. Gather context from Google Workspace and ERPNext files.
     google_context = ""
+    uploaded_files = []
     creds = None
     if is_google_integrated():
         creds = get_user_credentials()
 
     if creds:
-        # 4a. Look for direct references like @gdrive/file_id or @gmail/message_id
+        # 4a. Look for direct references like @gdrive/file_id or @file/file_url
         gdrive_refs = re.findall(r'@gdrive/([\w-]+)', prompt)
-        gmail_refs = re.findall(r'@gmail/([\w-]+)', prompt)
+        erpnext_file_refs = re.findall(r'@file/([\w\d\/\.-]+)', prompt)
 
         for file_id in gdrive_refs:
-            google_context += get_drive_file_context(creds, file_id) + "\n\n"
+            file_content = get_drive_file_context(creds, file_id)
+            if file_content:
+                uploaded_file = upload_file_to_gemini(file_id, file_content)
+                if uploaded_file:
+                    uploaded_files.append(uploaded_file)
+                    google_context += f"(System: Uploaded Google Drive file '{file_id}' for analysis.)\n"
 
-        for msg_id in gmail_refs:
-            google_context += get_gmail_message_context(creds, msg_id) + "\n\n"
+        for file_url in erpnext_file_refs:
+            file_content = get_erpnext_file_content(file_url)
+            if file_content:
+                uploaded_file = upload_file_to_gemini(file_url, file_content)
+                if uploaded_file:
+                    uploaded_files.append(uploaded_file)
+                    google_context += f"(System: Uploaded ERPNext file '{file_url}' for analysis.)\n"
 
         # 4b. Perform keyword-based or general searches for any text not part of a direct reference.
-        # This avoids searching for "@gdrive/123" if it was already handled.
         search_prompt = re.sub(r'@gdrive/[\w-]+', '', prompt).strip()
+        search_prompt = re.sub(r'@file/[\w\d\/\.-]+', '', search_prompt).strip()
         search_prompt = re.sub(r'@gmail/[\w-]+', '', search_prompt).strip()
 
         gmail_triggered = re.search(r'\b(email|mail|gmail)\b', search_prompt.lower())
@@ -527,7 +571,7 @@ def generate_chat_response(prompt, model=None, conversation=None):
             google_context += search_calendar(creds, search_prompt)
 
         # 4c. If no specific keywords or direct links were used, perform a general search.
-        if not any([gmail_triggered, drive_triggered, calendar_triggered, gdrive_refs, gmail_refs]):
+        if not any([gmail_triggered, drive_triggered, calendar_triggered, gdrive_refs, erpnext_file_refs]):
             google_context += search_gmail(creds, search_prompt)
             google_context += "\n"
             google_context += search_drive(creds, search_prompt)
@@ -543,25 +587,30 @@ def generate_chat_response(prompt, model=None, conversation=None):
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
     clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
+    clean_prompt = re.sub(r'@file/[\w\d\/\.-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()
 
     # 6. Assemble the final prompt with all context.
     system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction")
-    final_prompt = ""
+    final_prompt = []
     if system_instruction:
-        final_prompt += f"System Instruction: {system_instruction}\n\n"
+        final_prompt.append(f"System Instruction: {system_instruction}")
     
     if thoughts:
-        final_prompt += thoughts
+        final_prompt.append(thoughts)
 
-    final_prompt += f"User query: {clean_prompt}\n"
-    final_prompt += "\nBased on the user query and any provided context, please provide a helpful and comprehensive response."
+    final_prompt.append(f"User query: {clean_prompt}")
+    final_prompt.append("\nBased on the user query and any provided context, please provide a helpful and comprehensive response.")
 
-    response_text = generate_text(final_prompt, model)
+    if uploaded_files:
+        final_prompt.extend(uploaded_files)
+
+    response_text = generate_text(final_prompt, model, uploaded_files)
     return {
         "response": response_text,
         "thoughts": thoughts.strip() if thoughts else ""
     }
+
 
 
 # --- PROJECT-SPECIFIC FUNCTIONS ---
