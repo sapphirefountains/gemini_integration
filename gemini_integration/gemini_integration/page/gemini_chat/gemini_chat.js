@@ -9,8 +9,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 
     // Add custom styles
     const styles = `
-        .gemini-chat-container { display: flex; height: 75vh; }
-        .conversations-sidebar { width: 250px; border-right: 1px solid #d1d5db; padding: 15px; display: flex; flex-direction: column; }
+        .gemini-chat-container { display: flex; height: 75vh; position: relative; overflow: hidden; }
+        .conversations-sidebar { width: 250px; border-right: 1px solid #d1d5db; padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; }
         .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         #new-chat-button { margin-left: 10px; }
         #conversations-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; }
@@ -18,39 +18,34 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         #conversations-list .list-group-item:hover { background-color: #f0f0f0; }
         #conversations-list .list-group-item.active { background-color: #e0e0e0; font-weight: bold; }
 
-        .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; }
-        .chat-header { padding: 10px 0; }
+        .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; }
+        .chat-header { padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
         .chat-history { flex-grow: 1; overflow-y: auto; border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; margin-bottom: 16px; background-color: #f9fafb; }
         .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; word-wrap: break-word; }
         .chat-bubble.user { background-color: #3b82f6; color: white; margin-left: auto; border-bottom-right-radius: 0; }
         .chat-bubble.gemini { background-color: #e5e7eb; color: #1f2937; margin-right: auto; border-bottom-left-radius: 0; }
+        .chat-bubble.thoughts {
+            background-color: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            color: #4b5563;
+            width: 100%;
+            max-width: 100%;
+            margin-bottom: 12px;
+        }
+        .chat-bubble.thoughts h6 { margin-top: 0; margin-bottom: 10px; font-weight: 600; }
+        .chat-bubble.thoughts pre { white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; background-color: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+
         .chat-input-area { display: flex; align-items: center; gap: 8px; }
         .chat-input-area textarea { flex-grow: 1; }
         .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
         .google-connect-btn { margin-left: auto; }
-        .gemini-thoughts-area {
-            margin-bottom: 15px;
-            padding: 15px;
-            background-color: #f3f4f6;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-        }
-        .gemini-thoughts-area h6 {
-            margin-top: 0;
-            margin-bottom: 10px;
-            color: #4b5563;
-            font-weight: 600;
-        }
-        .gemini-thoughts-area .thoughts-content {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            max-height: 200px;
-            overflow-y: auto;
-            background-color: #fff;
-            padding: 10px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 12px;
+        .sidebar-toggle-btn { display: none; }
+
+        @media (max-width: 768px) {
+            .sidebar-toggle-btn { display: inline-block; }
+            .conversations-sidebar { position: absolute; top: 0; left: 0; height: 100%; z-index: 10; background: #fff; transform: translateX(-100%); }
+            .gemini-chat-container.sidebar-open .conversations-sidebar { transform: translateX(0); }
+            .gemini-chat-wrapper { max-width: 100%; }
         }
     `;
     $('<style>').text(styles).appendTo('head');
@@ -65,15 +60,16 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 <ul id="conversations-list" class="list-group"></ul>
             </div>
             <div class="gemini-chat-wrapper">
-                <div class="model-selector-area">
-                    <button class="btn btn-default btn-sm help-btn" title="Help">
-                        <i class="fa fa-question-circle"></i>
+                <div class="chat-header">
+                     <button class="btn btn-default btn-sm sidebar-toggle-btn">
+                        <i class="fa fa-bars"></i>
                     </button>
-                    <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
-                </div>
-                <div class="gemini-thoughts-area" style="display: none;">
-                    <h6>Gemini's Thoughts (Context Provided to AI)</h6>
-                    <pre class="thoughts-content"></pre>
+                    <div class="model-selector-area flex-grow-1">
+                         <button class="btn btn-default btn-sm help-btn" title="Help">
+                            <i class="fa fa-question-circle"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
+                    </div>
                 </div>
                 <div class="chat-history"></div>
                 <div class="chat-input-area">
@@ -96,12 +92,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     let send_btn = $(page.body).find('.send-btn');
     let google_connect_btn = $(page.body).find('.google-connect-btn');
     let help_btn = $(page.body).find('.help-btn');
-    let thoughts_area = $(page.body).find('.gemini-thoughts-area');
-    let thoughts_content = $(page.body).find('.thoughts-content');
     let search_drive_btn = $(page.body).find('.search-drive-btn');
     let search_mail_btn = $(page.body).find('.search-mail-btn');
     let new_chat_btn = $(page.body).find('#new-chat-button');
     let conversations_list = $(page.body).find('#conversations-list');
+    let sidebar_toggle_btn = $(page.body).find('.sidebar-toggle-btn');
+    let gemini_chat_container = $(page.body).find('.gemini-chat-container');
     let conversation = [];
 
     page.model_selector = frappe.ui.form.make_control({
@@ -154,6 +150,11 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         });
     });
 
+    sidebar_toggle_btn.on('click', function() {
+        gemini_chat_container.toggleClass('sidebar-open');
+    });
+
+
     help_btn.on('click', () => {
         const help_html = `
             <div>
@@ -190,8 +191,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         let prompt = chat_input.val().trim();
         if (!prompt) return;
 
-        thoughts_area.hide();
-
         add_to_history('user', prompt);
         chat_input.val('');
         
@@ -212,8 +211,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 loading.hide();
                 if (typeof r.message === 'object' && r.message.response) {
                     if (r.message.thoughts) {
-                        thoughts_content.text(r.message.thoughts);
-                        thoughts_area.show();
+                        add_to_history('thoughts', r.message.thoughts);
                     }
                     add_to_history('gemini', r.message.response);
                     if (r.message.conversation_id && !currentConversation) {
@@ -320,21 +318,31 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     });
 
     const add_to_history = (role, text) => {
-        let bubble = $(`<div class="chat-bubble ${role}"></div>`);
-        
-        if (text) {
-            if (window.showdown) {
-                let converter = new showdown.Converter();
-                let html = converter.makeHtml(text);
-                bubble.html(html);
-            } else {
-                bubble.text(text);
+        let bubble;
+        if (role === 'thoughts') {
+            bubble = $(`<div class="chat-bubble thoughts">
+                            <h6>Gemini's Thoughts (Context Provided to AI)</h6>
+                            <pre></pre>
+                        </div>`);
+            bubble.find('pre').text(text);
+        } else {
+            bubble = $(`<div class="chat-bubble ${role}"></div>`);
+            if (text) {
+                if (window.showdown) {
+                    let converter = new showdown.Converter();
+                    let html = converter.makeHtml(text);
+                    bubble.html(html);
+                } else {
+                    bubble.text(text);
+                }
             }
         }
         
         chat_history.append(bubble);
         chat_history.scrollTop(chat_history[0].scrollHeight);
-        conversation.push({role: role, text: text});
+        if (role !== 'thoughts') {
+            conversation.push({role: role, text: text});
+        }
     };
     
     let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
