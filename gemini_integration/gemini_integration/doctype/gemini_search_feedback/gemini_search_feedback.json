@@ -1,0 +1,51 @@
+{
+    "name": "Gemini Search Feedback",
+    "engine": "InnoDB",
+    "is_submittable": 0,
+    "issingle": 0,
+    "istable": 0,
+    "module": "Gemini Integration",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "track_changes": 1,
+    "fields": [
+        {
+            "fieldname": "search_query",
+            "fieldtype": "Data",
+            "label": "Search Query",
+            "reqd": 1
+        },
+        {
+            "fieldname": "document_name",
+            "fieldtype": "Data",
+            "label": "Document Name",
+            "reqd": 1
+        },
+        {
+            "fieldname": "doctype_name",
+            "fieldtype": "Data",
+            "label": "DocType Name",
+            "reqd": 1
+        },
+        {
+            "fieldname": "is_helpful",
+            "fieldtype": "Check",
+            "label": "Is Helpful"
+        }
+    ]
+}

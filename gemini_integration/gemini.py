@@ -6,7 +6,7 @@ import re
 import json
 import base64
 from datetime import datetime, timedelta
-from thefuzz import process
+from thefuzz import process, fuzz
 
 from gemini_integration.utils import handle_errors, log_activity
 
@@ -102,37 +102,68 @@ def find_best_match_for_doctype(doctype_name):
 
 @log_activity
 @handle_errors
-def search_erpnext_documents(doctype, query, limit=1000):
-    """Searches for documents in ERPNext with a query and returns a list of documents."""
+def search_erpnext_documents(doctype, query, limit=5):
+    """
+    Searches for documents in ERPNext with a query, returning a scored and ranked list.
+    """
     try:
-        # Get all the text-like fields for the doctype
-        fields = [df.fieldname for df in frappe.get_meta(doctype).fields if df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]]
+        meta = frappe.get_meta(doctype)
         
-        # Get all the documents with the text-like fields
-        all_docs = frappe.get_all(doctype, fields=fields)
+        # Define weights for different field types
+        title_field = meta.get_title_field()
+        search_fields = meta.get_search_fields()
 
-        # Extract keywords from the query
-        keywords = re.findall(r'"(.*?)"|\w+', query)
+        field_weights = {
+            title_field: 3.0,
+            'name': 3.0,
+        }
+        for f in search_fields:
+            if f not in field_weights:
+                field_weights[f] = 1.5
 
-        # Perform a fuzzy search for each keyword
-        matching_docs = []
+        # Get all text-like fields
+        fields_to_fetch = list(field_weights.keys())
+        for df in meta.fields:
+            if df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"] and df.fieldname not in fields_to_fetch:
+                fields_to_fetch.append(df.fieldname)
+
+        all_docs = frappe.get_all(doctype, fields=fields_to_fetch)
+
+        scored_docs = []
         for doc in all_docs:
-            doc_text = " ".join([str(doc.get(field, '')) for field in fields])
-            score = 0
-            for keyword in keywords:
-                score += process.extractOne(keyword, [doc_text])[1]
-            
-            if (score / len(keywords)) > 80: # Average score threshold
-                matching_docs.append({"name": doc.name})
+            total_score = 0
 
-        documents = matching_docs[:limit]
+            # Use token_set_ratio for better matching of unordered words
+            full_text = " ".join([str(doc.get(f, '')) for f in fields_to_fetch if f not in field_weights])
+            total_score += fuzz.token_set_ratio(query, full_text)
+            
+            # Apply weighted scores for important fields
+            for field, weight in field_weights.items():
+                field_value = str(doc.get(field, ''))
+                if field_value:
+                    total_score += fuzz.token_set_ratio(query, field_value) * weight
+
+            # Factor in user feedback for "learning"
+            feedback_score = frappe.db.sql("""
+                SELECT SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END)
+                FROM `tabGemini Search Feedback`
+                WHERE doctype_name = %s AND document_name = %s
+            """, (doctype, doc.name), as_list=True)
+
+            if feedback_score and feedback_score[0][0]:
+                total_score += feedback_score[0][0] * 10 # Add a significant bonus/penalty
+
+            if total_score > 0:
+                 scored_docs.append({"name": doc.name, "doctype": doctype, "score": total_score})
+
+        # Sort by score descending
+        sorted_docs = sorted(scored_docs, key=lambda x: x['score'], reverse=True)
         
-        disclaimer = f"(System: Searched {len(all_docs)} documents of type '{doctype}' and found {len(documents)} matches up to a limit of {limit}.)\n"
-        
-        return documents, disclaimer
+        return sorted_docs[:limit]
+
     except Exception as e:
         frappe.log_error(f"Error searching ERPNext documents: {str(e)}")
-        return [], f"(System: Could not search for documents of type '{doctype}'.)\n"
+        return []
 
 
 
@@ -663,42 +694,66 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
                     f"For example, try asking: 'What is the current status of {suggestion_str}?'"
                 )
 
-    # 2a. Check for counting/listing queries
-    search_query_match = re.search(r'\b(how many|count|list|show me all)\b', prompt, re.IGNORECASE)
-    if search_query_match:
-        # Extract doctype and query from the prompt
-        # This is a simple implementation and can be improved with more sophisticated NLP techniques
+    # 2a. Check for counting/listing/searching queries
+    search_query_match = re.search(r'\b(how many|count|list|show me all|find|search for)\b', prompt, re.IGNORECASE)
+    if search_query_match and not doc_names:
         try:
-            doctype_match = re.search(r'\b(in|of|from)\s+([a-zA-Z\s]+)\b', prompt, re.IGNORECASE)
-            doctype = doctype_match.group(2).strip()
-            
-            query_match = re.search(r'\b(with|where|that are|which are)\s+(.+)\b', prompt, re.IGNORECASE)
-            query = query_match.group(2).strip()
+            # More robust extraction of doctype and query
+            doctype_match = re.search(r'\b(in|of|from|for)\s+([a-zA-Z\s]+)(?:\s+with|\s+where|\s+that are|\s+which are|\s+about|\s+related to|$)', prompt, re.IGNORECASE)
+            if not doctype_match:
+                 # Fallback for simple "list Sales Invoices"
+                doctype_match = re.search(r'list\s+([a-zA-Z\s]+)', prompt, re.IGNORECASE)
 
-            documents, disclaimer = search_erpnext_documents(doctype, query)
-            
-            full_context = ""
-            if documents:
-                full_context += f"Found {len(documents)} documents of type '{doctype}' matching your query:\n"
-                for doc in documents:
-                    full_context += f"- {doc.name}\n"
-                full_context += "\n"
-            
-            full_context += disclaimer
+            if doctype_match:
+                doctype_str = doctype_match.group(2).strip()
+                # Find the best matching doctype name
+                doctype = find_best_match_for_doctype(doctype_str)
+                if not doctype:
+                    return {"response": f"Sorry, I couldn't find a DocType called '{doctype_str}'. Please check the name and try again."}
+
+                # Extract the query part more effectively
+                query = prompt[doctype_match.end():].strip()
+                # Remove common joining phrases
+                query = re.sub(r'^(with|where|that are|which are|about|related to)\s+', '', query, re.IGNORECASE)
+
+                documents = search_erpnext_documents(doctype, query)
+
+                # If the top result has a very high score, use it directly.
+                if documents and documents[0]['score'] > 250:
+                    full_context = get_doc_context(documents[0]['doctype'], documents[0]['name'])
+                # Otherwise, ask the user for confirmation.
+                elif documents:
+                    return {
+                        "response": "I found a few documents that might be what you're looking for. Please select the correct one:",
+                        "suggestions": documents,
+                        "thoughts": f"Search for '{query}' in '{doctype}' yielded {len(documents)} potential matches.",
+                        "conversation_id": conversation_id
+                    }
+                else:
+                     return {
+                        "response": f"I couldn't find any documents in '{doctype}' that matched your search for '{query}'.",
+                        "thoughts": f"Search for '{query}' in '{doctype}' yielded no results.",
+                        "conversation_id": conversation_id
+                    }
+            else:
+                # This part is left as is if no doctype is found in the query.
+                pass
+
 
         except Exception as e:
             frappe.log_error(f"Error parsing ERPNext search query: {str(e)}")
 
     # 3. Gather context from all found ERPNext references.
+    full_context = ""
     if doc_names:
         doctype_map = get_dynamic_doctype_map()
         all_doctype_names = [d.name for d in frappe.get_all("DocType")]
-        full_context = ""
 
         for doc_name in doc_names:
             doc_name = doc_name.strip()
             found_doctype = None
             
+            # This logic remains largely the same
             if '-' in doc_name:
                 prefix = doc_name.split('-')[0].upper()
                 mapped_doctype = doctype_map.get(prefix)
@@ -706,7 +761,6 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
                     found_doctype = mapped_doctype
             
             if not found_doctype:
-                # Try to find the doctype by fuzzy matching
                 best_match_doctype = find_best_match_for_doctype(doc_name)
                 if best_match_doctype and frappe.db.exists(best_match_doctype, doc_name):
                     found_doctype = best_match_doctype
@@ -720,7 +774,23 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
             if found_doctype:
                 full_context += get_doc_context(found_doctype, doc_name) + "\n\n"
             else:
-                full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
+                # If not found, trigger the enhanced search to find suggestions
+                all_doctypes = [d.name for d in frappe.get_all("DocType")]
+                possible_matches = []
+                for dt in all_doctypes:
+                    possible_matches.extend(search_erpnext_documents(dt, doc_name))
+
+                if possible_matches:
+                    # Sort all found matches from all doctypes
+                    sorted_matches = sorted(possible_matches, key=lambda x: x['score'], reverse=True)
+                    return {
+                        "response": f"I couldn't find a document with the exact name '{doc_name}'. Did you mean one of these?",
+                        "suggestions": sorted_matches[:5],
+                        "thoughts": f"Direct lookup for '{doc_name}' failed. Fuzzy search across all DocTypes found {len(sorted_matches)} potential matches.",
+                        "conversation_id": conversation_id
+                    }
+                else:
+                    full_context += f"(System: Document '{doc_name}' could not be found.)\n\n"
 
     # 4. Gather context from Google Workspace and ERPNext files.
     google_context = ""
@@ -846,6 +916,24 @@ def save_conversation(conversation_id, title, conversation):
     doc.save(ignore_permissions=True)
     frappe.db.commit()
     return doc.name
+
+
+@log_activity
+@handle_errors
+def record_feedback(search_query, doctype_name, document_name, is_helpful):
+    """Records user feedback on search results to improve future searches."""
+    try:
+        feedback_doc = frappe.new_doc("Gemini Search Feedback")
+        feedback_doc.search_query = search_query
+        feedback_doc.doctype_name = doctype_name
+        feedback_doc.document_name = document_name
+        feedback_doc.is_helpful = int(is_helpful)
+        feedback_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        frappe.log_error(f"Error recording feedback: {str(e)}", "Gemini Integration")
+        return {"status": "error", "message": str(e)}
 
 
 
