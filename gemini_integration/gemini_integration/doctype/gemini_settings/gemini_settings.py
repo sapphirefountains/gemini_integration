@@ -5,5 +5,10 @@ import frappe
 from frappe.model.document import Document
 
 class GeminiSettings(Document):
+	"""A class representing the Gemini Settings document type.
+
+	This document stores the configuration for the Gemini integration,
+	including the API key, default model, and other settings.
+	"""
 	pass
 

@@ -6,4 +6,9 @@ from frappe.model.document import Document
 
 
 class GeminiSearchFeedback(Document):
+	"""A class representing the Gemini Search Feedback document type.
+
+	This document stores user feedback on the relevance of search results,
+	which can be used to improve the search algorithm over time.
+	"""
 	pass
