@@ -4,6 +4,7 @@
     "is_submittable": 0,
     "issingle": 0,
     "istable": 0,
+    "doctype": "DocType",
     "module": "Gemini Integration",
     "owner": "Administrator",
     "permissions": [
