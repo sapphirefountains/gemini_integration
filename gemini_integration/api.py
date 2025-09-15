@@ -3,6 +3,7 @@ from gemini_integration.utils import handle_errors, log_activity
 from gemini_integration.gemini import (
     generate_text,
     generate_chat_response,
+    record_feedback,
     generate_tasks,
     analyze_risks,
     get_google_auth_url,
@@ -13,6 +14,13 @@ from gemini_integration.gemini import (
     get_user_credentials,
     get_drive_file_for_analysis
 )
+
+@frappe.whitelist()
+@log_activity
+@handle_errors
+def record_feedback_from_chat(search_query, doctype_name, document_name, is_helpful):
+    """Endpoint for recording user feedback on search results."""
+    return record_feedback(search_query, doctype_name, document_name, is_helpful)
 
 @frappe.whitelist()
 @log_activity

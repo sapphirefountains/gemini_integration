@@ -34,6 +34,9 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         }
         .chat-bubble.thoughts h6 { margin-top: 0; margin-bottom: 10px; font-weight: 600; }
         .chat-bubble.thoughts pre { white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; background-color: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+        .suggestions-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+        .suggestion-btn { background-color: #f0f0f0; border: 1px solid #d1d5db; padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; }
+        .suggestion-btn:hover { background-color: #e0e0e0; }
 
         .chat-input-area { display: flex; align-items: center; gap: 8px; }
         .chat-input-area textarea { flex-grow: 1; }
@@ -187,9 +190,12 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         });
     });
 
-    const send_message = () => {
-        let prompt = chat_input.val().trim();
+    let last_prompt = '';
+    const send_message = (prompt_text) => {
+        let prompt = prompt_text || chat_input.val().trim();
         if (!prompt) return;
+
+        last_prompt = prompt; // Store the last user-initiated prompt
 
         add_to_history('user', prompt);
         chat_input.val('');
@@ -209,30 +215,100 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             },
             callback: function(r) {
                 loading.hide();
-                if (typeof r.message === 'object' && r.message.response) {
+                if (r.message) {
                     if (r.message.thoughts) {
                         add_to_history('thoughts', r.message.thoughts);
                     }
                     add_to_history('gemini', r.message.response);
+
+                    if (r.message.suggestions) {
+                        add_suggestions(r.message.suggestions);
+                    }
+
                     if (r.message.conversation_id && !currentConversation) {
                         currentConversation = r.message.conversation_id;
                         load_conversations();
                     }
                 } else {
-                    add_to_history('gemini', r.message);
+                    add_to_history('gemini', "Sorry, I received an empty response. Please try again.");
                 }
             },
             error: function(r) {
                 loading.hide();
                 let error_msg = r.message ? r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;") : "An unknown error occurred.";
-                frappe.msgprint({
-                    title: __('Error'),
-                    indicator: 'red',
-                    message: error_msg
-                });
+                add_to_history('gemini', `Error: ${error_msg}`);
             }
         });
     };
+
+    const add_suggestions = (suggestions) => {
+        let suggestions_html = '<div class="suggestions-container">';
+        suggestions.forEach(s => {
+            suggestions_html += `<button class="suggestion-btn" data-doctype="${s.doctype}" data-name="${s.name}">
+                ${s.name} <span class="text-muted">(${s.doctype})</span>
+            </button>`;
+        });
+        suggestions_html += `<button class="suggestion-btn none-correct-btn">None of these are correct</button>`;
+        suggestions_html += '</div>';
+
+        let bubble = $(`<div class="chat-bubble gemini"></div>`);
+        bubble.html(suggestions_html);
+        chat_history.append(bubble);
+        chat_history.scrollTop(chat_history[0].scrollHeight);
+    };
+
+    chat_history.on('click', '.suggestion-btn', function() {
+        const btn = $(this);
+        const doctype = btn.data('doctype');
+        const name = btn.data('name');
+
+        // Visually disable the suggestions
+        btn.closest('.suggestions-container').find('.suggestion-btn').prop('disabled', true).css('cursor', 'not-allowed');
+        btn.addClass('btn-success').removeClass('btn-default');
+
+        // Record feedback
+        frappe.call({
+            method: 'gemini_integration.api.record_feedback_from_chat',
+            args: {
+                search_query: last_prompt,
+                doctype_name: doctype,
+                document_name: name,
+                is_helpful: 1
+            }
+        });
+
+        // Resend the prompt with the selected document context
+        const new_prompt = `${last_prompt}\n\n(User selected document: @'${doctype}'/'${name}')`;
+        send_message(new_prompt);
+    });
+
+    chat_history.on('click', '.none-correct-btn', function() {
+        const btn = $(this);
+        const container = btn.closest('.suggestions-container');
+
+        container.find('.suggestion-btn').each(function() {
+            const suggestion_btn = $(this);
+            if (suggestion_btn.is(btn)) return; // Skip the "none correct" button itself
+
+            const doctype = suggestion_btn.data('doctype');
+            const name = suggestion_btn.data('name');
+
+            frappe.call({
+                method: 'gemini_integration.api.record_feedback_from_chat',
+                args: {
+                    search_query: last_prompt,
+                    doctype_name: doctype,
+                    document_name: name,
+                    is_helpful: 0 // Explicitly not helpful
+                }
+            });
+        });
+
+        container.find('.suggestion-btn').prop('disabled', true).css('cursor', 'not-allowed');
+        btn.addClass('btn-danger').removeClass('btn-default');
+
+        add_to_history('gemini', "Thank you for the feedback. I'll try to improve my suggestions. Please try rephrasing your query.");
+    });
 
     const open_search_modal = (search_type) => {
         let dialog = new frappe.ui.Dialog({
@@ -351,7 +427,7 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     script.src = script_url;
     document.head.appendChild(script);
 
-    send_btn.on('click', send_message);
+    send_btn.on('click', () => send_message());
 
     chat_input.on('keydown', function(e) {
         if (e.key === 'Enter' && e.shiftKey) {
