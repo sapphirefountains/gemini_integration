@@ -7,62 +7,32 @@ from gemini_integration.gemini import (
     analyze_risks,
     get_google_auth_url,
     process_google_callback,
-    is_google_integrated,
-    search_google_drive,
-    search_google_mail,
-    get_user_credentials,
-    get_drive_file_for_analysis
+    is_google_integrated
 )
 
 @frappe.whitelist()
 @log_activity
 @handle_errors
 def generate(prompt, model=None):
-    """Generates text using the Gemini API.
-
-    Args:
-        prompt (str): The text prompt to generate text from.
-        model (str, optional): The model to use for generation. Defaults to None.
-
-    Returns:
-        str: The generated text.
-    """
+    """Generates text using the Gemini API."""
     return generate_text(prompt, model)
 
 
 @frappe.whitelist()
 @log_activity
 @handle_errors
-def chat(prompt=None, model=None, conversation_id=None):
-    """Handles chat interactions with the Gemini API.
-
-    Args:
-        prompt (str, optional): The user's chat prompt. Defaults to None.
-        model (str, optional): The model to use for the chat. Defaults to None.
-        conversation_id (str, optional): The ID of the existing conversation.
-            Defaults to None.
-
-    Returns:
-        dict: A dictionary containing the chat response and conversation ID.
-    """
-    if not prompt:
-        frappe.throw("A prompt is required.")
-    return generate_chat_response(prompt, model, conversation_id)
+def chat(prompt=None, model=None, conversation_id=None, selected_options=None):
+    """Handles chat interactions with the Gemini API, including clarifications."""
+    if not prompt and not selected_options:
+        frappe.throw("A prompt or selected options are required.")
+    return generate_chat_response(prompt, model, conversation_id, selected_options)
 
 
 @frappe.whitelist()
 @log_activity
 @handle_errors
 def get_project_tasks(project_id, template):
-    """Generates project tasks based on a project ID and template.
-
-    Args:
-        project_id (str): The ID of the project to generate tasks for.
-        template (str): The template to use for generating tasks.
-
-    Returns:
-        list: A list of generated tasks.
-    """
+    """Generates project tasks based on a project ID and template."""
     return generate_tasks(project_id, template)
 
 
@@ -70,14 +40,7 @@ def get_project_tasks(project_id, template):
 @log_activity
 @handle_errors
 def get_project_risks(project_id):
-    """Analyzes and returns the risks for a given project.
-
-    Args:
-        project_id (str): The ID of the project to analyze.
-
-    Returns:
-        list: A list of identified risks.
-    """
+    """Analyzes and returns the risks for a given project."""
     return analyze_risks(project_id)
 
 
@@ -85,11 +48,7 @@ def get_project_risks(project_id):
 @log_activity
 @handle_errors
 def get_auth_url():
-    """Retrieves the Google OAuth 2.0 authorization URL.
-
-    Returns:
-        str: The authorization URL.
-    """
+    """Retrieves the Google OAuth 2.0 authorization URL."""
     return get_google_auth_url()
 
 
@@ -97,14 +56,7 @@ def get_auth_url():
 @log_activity
 @handle_errors
 def handle_google_callback(code=None, state=None, error=None):
-    """Handles the callback from Google after user authorization.
-
-    Args:
-        code (str, optional): The authorization code from Google. Defaults to None.
-        state (str, optional): The state parameter from the initial request.
-            Defaults to None.
-        error (str, optional): Any error returned by Google. Defaults to None.
-    """
+    """Handles the callback from Google after user authorization."""
     process_google_callback(code, state, error)
 
 
@@ -112,75 +64,13 @@ def handle_google_callback(code=None, state=None, error=None):
 @log_activity
 @handle_errors
 def check_google_integration():
-    """Checks if the current user has integrated their Google account.
-
-    Returns:
-        bool: True if the account is integrated, False otherwise.
-    """
+    """Checks if the current user has integrated their Google account."""
     return is_google_integrated()
 
 
 @frappe.whitelist()
-@log_activity
-@handle_errors
-def search_drive(query):
-    """Searches for files in Google Drive.
-
-    Args:
-        query (str): The search query.
-
-    Returns:
-        list: A list of files matching the query.
-    """
-    creds = get_user_credentials()
-    if not creds:
-        frappe.throw("Google account not integrated.")
-    return search_google_drive(creds, query)
-
-
-@frappe.whitelist()
-@log_activity
-@handle_errors
-def search_mail(query):
-    """Searches for emails in a user's Gmail account.
-
-    Args:
-        query (str): The search query.
-
-    Returns:
-        list: A list of emails matching the query.
-    """
-    creds = get_user_credentials()
-    if not creds:
-        frappe.throw("Google account not integrated.")
-    return search_google_mail(creds, query)
-
-
-@frappe.whitelist()
-@log_activity
-@handle_errors
-def get_drive_file_for_analysis(file_id):
-    """Retrieves a Google Drive file for analysis.
-
-    Args:
-        file_id (str): The ID of the file to retrieve.
-
-    Returns:
-        dict: The content of the file.
-    """
-    creds = get_user_credentials()
-    if not creds:
-        frappe.throw("Google account not integrated.")
-    return get_drive_file_for_analysis(creds, file_id)
-
-
-@frappe.whitelist()
 def get_conversations():
-    """Retrieves all Gemini conversations for the current user.
-
-    Returns:
-        list: A list of conversations, sorted by modification date.
-    """
+    """Retrieves all Gemini conversations for the current user."""
     return frappe.get_all(
         "Gemini Conversation",
         filters={"user": frappe.session.user},
@@ -191,14 +81,7 @@ def get_conversations():
 
 @frappe.whitelist()
 def get_conversation(conversation_id):
-    """Retriees a specific Gemini conversation.
-
-    Args:
-        conversation_id (str): The ID of the conversation to retrieve.
-
-    Returns:
-        frappe.model.document.Document: The conversation document.
-    """
+    """Retrieves a specific Gemini conversation."""
     doc = frappe.get_doc("Gemini Conversation", conversation_id)
     if doc.user != frappe.session.user:
         frappe.throw("You are not authorized to view this conversation.")
