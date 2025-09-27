@@ -7,7 +7,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
 
     let currentConversation = null;
 
-    // Add custom styles
     const styles = `
         .gemini-chat-container { display: flex; height: 75vh; position: relative; overflow: hidden; }
         .conversations-sidebar { width: 250px; border-right: 1px solid #d1d5db; padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; }
@@ -24,19 +23,14 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; word-wrap: break-word; }
         .chat-bubble.user { background-color: #3b82f6; color: white; margin-left: auto; border-bottom-right-radius: 0; }
         .chat-bubble.gemini { background-color: #e5e7eb; color: #1f2937; margin-right: auto; border-bottom-left-radius: 0; }
-        .chat-bubble.thoughts {
-            background-color: #f3f4f6;
-            border: 1px solid #e5e7eb;
-            color: #4b5563;
-            width: 100%;
-            max-width: 100%;
-            margin-bottom: 12px;
-        }
+        .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid #e5e7eb; color: #4b5563; width: 100%; max-width: 100%; margin-bottom: 12px; }
         .chat-bubble.thoughts h6 { margin-top: 0; margin-bottom: 10px; font-weight: 600; }
         .chat-bubble.thoughts pre { white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; background-color: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
-        .suggestions-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-        .suggestion-btn { background-color: #f0f0f0; border: 1px solid #d1d5db; padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; }
-        .suggestion-btn:hover { background-color: #e0e0e0; }
+
+        .clarification-container { padding: 10px; }
+        .clarification-container .list-group-item { display: flex; align-items: center; }
+        .clarification-container .list-group-item input { margin-right: 10px; }
+        .clarification-submit-btn { margin-top: 10px; }
 
         .chat-input-area { display: flex; align-items: center; gap: 8px; }
         .chat-input-area textarea { flex-grow: 1; }
@@ -76,12 +70,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 </div>
                 <div class="chat-history"></div>
                 <div class="chat-input-area">
-                    <button class="btn btn-default btn-sm search-drive-btn" title="Search Google Drive">
-                        <i class="fa fa-google"></i> Drive
-                    </button>
-                    <button class="btn btn-default btn-sm search-mail-btn" title="Search Google Mail">
-                        <i class="fa fa-envelope"></i> Mail
-                    </button>
                     <textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
                     <button class="btn btn-primary send-btn">Send</button>
                 </div>
@@ -95,8 +83,6 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     let send_btn = $(page.body).find('.send-btn');
     let google_connect_btn = $(page.body).find('.google-connect-btn');
     let help_btn = $(page.body).find('.help-btn');
-    let search_drive_btn = $(page.body).find('.search-drive-btn');
-    let search_mail_btn = $(page.body).find('.search-mail-btn');
     let new_chat_btn = $(page.body).find('#new-chat-button');
     let conversations_list = $(page.body).find('#conversations-list');
     let sidebar_toggle_btn = $(page.body).find('.sidebar-toggle-btn');
@@ -106,123 +92,81 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     page.model_selector = frappe.ui.form.make_control({
         parent: $(page.body).find('.model-selector-area'),
         df: {
-            fieldtype: 'Select',
-            label: 'Model',
+            fieldtype: 'Select', label: 'Model',
             options: [
-                { label: "Gemini 2.5 Flash", value: "gemini-2.5-flash" },
-                { label: "Gemini 2.5 Pro", value: "gemini-2.5-pro" }
+                { label: "Gemini 1.5 Flash", value: "gemini-1.5-flash" },
+                { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
             ],
             change: function() {
-                if (frappe.storage) {
-                    let selected_model = this.get_value();
-                    frappe.storage.set('gemini_last_model', selected_model);
-                }
+                if (frappe.storage) frappe.storage.set('gemini_last_model', this.get_value());
             }
         },
         render_input: true,
     });
     
-    if (frappe.storage) {
-        let last_model = frappe.storage.get('gemini_last_model');
-        if (last_model) {
-            page.model_selector.set_value(last_model);
-        } else {
-            page.model_selector.set_value('gemini-2.5-flash');
-        }
-    } else {
-        page.model_selector.set_value('gemini-2.5-flash');
-    }
+    page.model_selector.set_value(frappe.storage.get('gemini_last_model') || 'gemini-1.5-flash');
     
     frappe.call({
         method: "gemini_integration.api.check_google_integration",
-        callback: function(r) {
-            if (r.message) {
-                google_connect_btn.text("Google Account Connected").removeClass("btn-secondary").addClass("btn-success");
-            }
+        callback: r => {
+            if (r.message) google_connect_btn.text("Google Account Connected").removeClass("btn-secondary").addClass("btn-success");
         }
     });
 
-    google_connect_btn.on('click', function() {
+    google_connect_btn.on('click', () => {
         frappe.call({
             method: 'gemini_integration.api.get_auth_url',
-            callback: function(r) {
-                if (r.message) {
-                    window.open(r.message, "_blank");
-                }
-            }
+            callback: r => { if (r.message) window.open(r.message, "_blank"); }
         });
     });
 
-    sidebar_toggle_btn.on('click', function() {
-        gemini_chat_container.toggleClass('sidebar-open');
-    });
-
+    sidebar_toggle_btn.on('click', () => gemini_chat_container.toggleClass('sidebar-open'));
 
     help_btn.on('click', () => {
         const help_html = `
             <div>
                 <h4>How to Reference Data</h4>
-                <p>You can reference data from ERPNext and Google Workspace directly in your chat messages.</p>
-                
+                <p>Use the <code>@</code> symbol to reference data from ERPNext or search Google Workspace.</p>
                 <h5>ERPNext Documents</h5>
-                <p>Use <code>@DocType-ID</code> or <code>@"Doc Name"</code> to reference any document.</p>
-                <ul>
-                    <li><code>What is the status of @PRJ-00183?</code></li>
-                    <li><code>Summarize customer @"Valley Fair"</code></li>
-                </ul>
-
-                <h5>Google Drive & Gmail</h5>
-                <p>Use <code>@gdrive/file_id</code> or <code>@gmail/message_id</code> to reference specific items.</p>
-                <ul>
-                    <li><code>Summarize the file @gdrive/1a2b3c...</code></li>
-                    <li><code>What was the outcome of email @gmail/a1b2c3...?</code></li>
-                </ul>
-
-                <h5>General Search</h5>
-                <p>For general queries, the system will automatically search Google Drive and Gmail. You can also use keywords like <code>email</code>, <code>drive</code>, or <code>calendar</code> to focus the search.</p>
-            </div>
-        `;
-
-        frappe.msgprint({
-            title: __('Help: Referencing Data'),
-            indicator: 'blue',
-            message: help_html
-        });
+                <p>Use <code>@DocType-ID</code> or <code>@"Doc Name"</code> to find specific documents.</p>
+                <ul><li><code>What is the status of @PRJ-00183?</code></li><li><code>Summarize customer @"Valley Fair"</code></li></ul>
+                <h5>Google Workspace</h5>
+                <p>Include keywords like <code>email</code>, <code>drive</code>, <code>file</code>, or <code>calendar</code> in your prompt. If multiple items are found, I'll ask you to clarify.</p>
+                <ul><li><code>Find emails about the "Q3 marketing budget"</code></li><li><code>Search my drive for "2024 Roadmap"</code></li></ul>
+            </div>`;
+        frappe.msgprint({ title: __('Help: Referencing Data'), indicator: 'blue', message: help_html });
     });
 
-    let last_prompt = '';
-    const send_message = (prompt_text) => {
-        let prompt = prompt_text || chat_input.val().trim();
-        if (!prompt) return;
+    const send_message = (prompt, selected_options = null) => {
+        if (!prompt && !selected_options) {
+            prompt = chat_input.val().trim();
+            if (!prompt) return;
+        }
 
-        last_prompt = prompt; // Store the last user-initiated prompt
-
-        add_to_history('user', prompt);
-        chat_input.val('');
+        if (prompt) {
+            add_to_history('user', prompt);
+            chat_input.val('');
+        }
         
-        let loading = frappe.msgprint({
-            message: __("Getting response from Gemini..."),
-            indicator: 'blue',
-            title: __('Please Wait')
-        });
+        let loading = frappe.msgprint({ message: __("Getting response from Gemini..."), indicator: 'blue', title: __('Please Wait') });
 
         frappe.call({
             method: 'gemini_integration.api.chat',
             args: {
                 prompt: prompt,
                 model: page.model_selector.get_value(),
-                conversation_id: currentConversation
+                conversation_id: currentConversation,
+                selected_options: selected_options ? JSON.stringify(selected_options) : null
             },
             callback: function(r) {
                 loading.hide();
                 if (r.message) {
-                    if (r.message.thoughts) {
-                        add_to_history('thoughts', r.message.thoughts);
-                    }
-                    add_to_history('gemini', r.message.response);
+                    if (r.message.thoughts) add_to_history('thoughts', r.message.thoughts);
 
-                    if (r.message.suggestions) {
-                        add_suggestions(r.message.suggestions);
+                    if (r.message.clarification_needed) {
+                        render_clarification_options(r.message.response, r.message.options);
+                    } else {
+                        add_to_history('gemini', r.message.response);
                     }
 
                     if (r.message.conversation_id && !currentConversation) {
@@ -241,173 +185,57 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         });
     };
 
-    const add_suggestions = (suggestions) => {
-        let suggestions_html = '<div class="suggestions-container">';
-        suggestions.forEach(s => {
-            suggestions_html += `<button class="suggestion-btn" data-doctype="${s.doctype}" data-name="${s.name}">
-                ${s.name} <span class="text-muted">(${s.doctype})</span>
-            </button>`;
+    const render_clarification_options = (intro_text, options) => {
+        let options_html = `<div class="clarification-container">
+                                <p>${intro_text}</p>
+                                <ul class="list-group">`;
+        options.forEach((opt, index) => {
+            options_html += `<li class="list-group-item">
+                                <input type="checkbox" id="clarify_opt_${index}" class="clarify-option-check">
+                                <label for="clarify_opt_${index}">${opt.label}</label>
+                             </li>`;
         });
-        suggestions_html += `<button class="suggestion-btn none-correct-btn">None of these are correct</button>`;
-        suggestions_html += '</div>';
+        options_html += `   </ul>
+                             <button class="btn btn-primary btn-sm clarification-submit-btn">Submit Selection</button>
+                           </div>`;
 
         let bubble = $(`<div class="chat-bubble gemini"></div>`);
-        bubble.html(suggestions_html);
+        bubble.html(options_html);
+        bubble.find('.clarify-option-check').each((i, el) => {
+            $(el).data('option', options[i]);
+        });
         chat_history.append(bubble);
         chat_history.scrollTop(chat_history[0].scrollHeight);
     };
 
-    chat_history.on('click', '.suggestion-btn', function() {
+    chat_history.on('click', '.clarification-submit-btn', function() {
         const btn = $(this);
-        const doctype = btn.data('doctype');
-        const name = btn.data('name');
+        const container = btn.closest('.clarification-container');
+        const selected_options = [];
 
-        // Visually disable the suggestions
-        btn.closest('.suggestions-container').find('.suggestion-btn').prop('disabled', true).css('cursor', 'not-allowed');
-        btn.addClass('btn-success').removeClass('btn-default');
-
-        // Record feedback
-        frappe.call({
-            method: 'gemini_integration.api.record_feedback_from_chat',
-            args: {
-                search_query: last_prompt,
-                doctype_name: doctype,
-                document_name: name,
-                is_helpful: 1
-            }
+        container.find('.clarify-option-check:checked').each(function() {
+            selected_options.push($(this).data('option'));
         });
 
-        // Resend the prompt with the selected document context
-        const new_prompt = `${last_prompt}\n\n(User selected document: @'${doctype}'/'${name}')`;
-        send_message(new_prompt);
-    });
-
-    chat_history.on('click', '.none-correct-btn', function() {
-        const btn = $(this);
-        const container = btn.closest('.suggestions-container');
-
-        container.find('.suggestion-btn').each(function() {
-            const suggestion_btn = $(this);
-            if (suggestion_btn.is(btn)) return; // Skip the "none correct" button itself
-
-            const doctype = suggestion_btn.data('doctype');
-            const name = suggestion_btn.data('name');
-
-            frappe.call({
-                method: 'gemini_integration.api.record_feedback_from_chat',
-                args: {
-                    search_query: last_prompt,
-                    doctype_name: doctype,
-                    document_name: name,
-                    is_helpful: 0 // Explicitly not helpful
-                }
-            });
-        });
-
-        container.find('.suggestion-btn').prop('disabled', true).css('cursor', 'not-allowed');
-        btn.addClass('btn-danger').removeClass('btn-default');
-
-        add_to_history('gemini', "Thank you for the feedback. I'll try to improve my suggestions. Please try rephrasing your query.");
-    });
-
-    const open_search_modal = (search_type) => {
-        let dialog = new frappe.ui.Dialog({
-            title: `Search ${search_type}`,
-            fields: [
-                {
-                    label: 'Search Query',
-                    fieldname: 'search_query',
-                    fieldtype: 'Data'
-                },
-                {
-                    label: 'Results',
-                    fieldname: 'results',
-                    fieldtype: 'HTML'
-                }
-            ],
-            primary_action_label: 'Search',
-            primary_action: (values) => {
-                let method = search_type === 'Google Drive' ? 'search_drive' : 'search_mail';
-                frappe.call({
-                    method: `gemini_integration.api.${method}`,
-                    args: {
-                        query: values.search_query
-                    },
-                    callback: function(r) {
-                        let results_html = '';
-                        if (r.message && r.message.length > 0) {
-                            results_html += '<ul class="list-group">';
-                            r.message.forEach(item => {
-                                let title = search_type === 'Google Drive' ? item.name : item.payload.headers.find(h => h.name === 'Subject').value;
-                                let id = item.id;
-                                results_html += `<li class="list-group-item d-flex justify-content-between align-items-center">
-                                                    <a href="#" data-id="${id}" data-type="${search_type}">${title}</a>
-                                                    <button class="btn btn-primary btn-sm analyze-btn" data-id="${id}">Analyze</button>
-                                                </li>`;
-                            });
-                            results_html += '</ul>';
-                        } else {
-                            results_html = 'No results found.';
-                        }
-                        dialog.get_field('results').$wrapper.html(results_html);
-                    }
-                });
-            }
-        });
-
-        dialog.show();
-
-        dialog.get_field('results').$wrapper.on('click', 'a', function(e) {
-            e.preventDefault();
-            let id = $(this).data('id');
-            let type = $(this).data('type');
-            let ref = type === 'Google Drive' ? `@gdrive/${id}` : `@gmail/${id}`;
-            chat_input.val(chat_input.val() + ' ' + ref);
-            dialog.hide();
-        });
-
-        dialog.get_field('results').$wrapper.on('click', '.analyze-btn', function(e) {
-            e.preventDefault();
-            let id = $(this).data('id');
-            frappe.call({
-                method: 'gemini_integration.api.get_drive_file_for_analysis',
-                args: {
-                    file_id: id
-                },
-                callback: function(r) {
-                    if (r.message) {
-                        let ref = `@gdrive/${r.message.name}`;
-                        chat_input.val(chat_input.val() + ' ' + ref);
-                        dialog.hide();
-                    }
-                }
-            });
-        });
-    };
-
-    search_drive_btn.on('click', () => {
-        open_search_modal('Google Drive');
-    });
-
-    search_mail_btn.on('click', () => {
-        open_search_modal('Google Mail');
+        if (selected_options.length > 0) {
+            btn.prop('disabled', true).text('Submitted');
+            send_message(null, selected_options);
+        } else {
+            frappe.show_alert({message: "Please select at least one option.", indicator: "orange"});
+        }
     });
 
     const add_to_history = (role, text) => {
         let bubble;
         if (role === 'thoughts') {
-            bubble = $(`<div class="chat-bubble thoughts">
-                            <h6>Gemini's Thoughts (Context Provided to AI)</h6>
-                            <pre></pre>
-                        </div>`);
+            bubble = $(`<div class="chat-bubble thoughts"><h6>Gemini's Thoughts</h6><pre></pre></div>`);
             bubble.find('pre').text(text);
         } else {
             bubble = $(`<div class="chat-bubble ${role}"></div>`);
             if (text) {
                 if (window.showdown) {
                     let converter = new showdown.Converter();
-                    let html = converter.makeHtml(text);
-                    bubble.html(html);
+                    bubble.html(converter.makeHtml(text));
                 } else {
                     bubble.text(text);
                 }
@@ -421,10 +249,9 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         }
     };
     
-    let script_url = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
     let script = document.createElement('script');
     script.type = 'text/javascript';
-    script.src = script_url;
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
     document.head.appendChild(script);
 
     send_btn.on('click', () => send_message());
@@ -454,18 +281,14 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     const load_conversation = (conversation_id) => {
         frappe.call({
             method: 'gemini_integration.api.get_conversation',
-            args: {
-                conversation_id: conversation_id
-            },
+            args: { conversation_id: conversation_id },
             callback: function(r) {
                 if (r.message) {
                     currentConversation = r.message.name;
                     chat_history.empty();
                     conversation = JSON.parse(r.message.conversation || '[]');
-                    conversation.forEach(msg => {
-                        add_to_history(msg.role, msg.text);
-                    });
-                    load_conversations(); // To highlight the active conversation
+                    conversation.forEach(msg => add_to_history(msg.role, msg.text));
+                    load_conversations();
                 }
             }
         });
@@ -480,11 +303,9 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     });
 
     conversations_list.on('click', '.list-group-item', function() {
-        let conversation_id = $(this).data('id');
-        load_conversation(conversation_id);
+        load_conversation($(this).data('id'));
     });
 
-    // Initial load
     load_conversations();
     add_to_history('gemini', 'Hello! How can I help you today?');
 }

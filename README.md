@@ -79,25 +79,19 @@ Once installed and configured, you can access the chat interface from the **Gemi
 
 #### 1. Interacting with ERPNext Data
 
-*   **Direct Reference:** To pull data from a specific ERPNext document, use the `@` symbol followed by the document's ID.
-    *   **Syntax:** `@DOCTYPE-ID` or `@"Document Name"`
-    *   **Example:** `What is the status of project @PRJ-00183?` or `Summarize the last communication with customer @"Valley Fair"`.
-*   **Smart Search:** If you're not sure of the exact ID, you can ask a general question. The system will try to find the most relevant document for you.
-    *   **Example:** `Find the sales order for the latest shipment to ACME Corp.`
-    *   If multiple potential matches are found, the system will ask you to choose the correct one.
+*   **Smart Referencing with `@`:** To pull data from an ERPNext document, simply use the `@` symbol followed by the document's name or ID. The system is designed to be flexible, so you don't need to know the exact DocType.
+    *   **Example:** `What is the status of @PRJ-00183?`
+    *   **Example:** `Tell me more about @"Test Customer"`.
+*   **Interactive Clarification:** If your query is ambiguous and Gemini finds multiple possible matches (e.g., you search for `@"Test"` and it finds `"Test Project"` and `"Test Task"`), it will present you with a list of options. Simply select the correct document(s) to provide the context for your query. This ensures you always get the most relevant information.
 
 #### 2. Interacting with Google Workspace
 
 1.  **Connect Your Account:** The first time you use a Google service, the system will prompt you to connect your account. Click the link, sign in with Google, and grant the necessary permissions.
-2.  **Search Your Workspace:**
-    *   **Keyword Search:** Use terms like `email`, `drive`, `file`, or `calendar` to target a specific service.
-        *   `Search my email for the latest updates from Riverton City.`
-        *   `Find the contract file in my drive for the Main Street Fountain project.`
-        *   `What is on my calendar for next week?`
-    *   **General Search:** If you don't use keywords, Gemini will automatically search Gmail and Google Drive for relevant information based on your query.
-3.  **Reference Specific Items:** To pull in a specific file or email, use the `@gdrive` or `@gmail` reference followed by the item's ID.
-    *   **Syntax:** `@gdrive/file_id` or `@gmail/message_id`
-    *   **Example:** `Summarize the document @gdrive/1a2b3c4d5e6f...`
+2.  **Smart Search:** There's no special syntax required. Just ask your question naturally. If you mention keywords like `email`, `drive`, `file`, or `calendar`, Gemini will use them to narrow the search.
+    *   `Search my email for the latest updates from Riverton City.`
+    *   `Find the contract file in my drive for the Main Street Fountain project.`
+    *   `What is on my calendar for next week?`
+*   **Interactive Clarification:** Just like with ERPNext data, if your search in Google Drive or Gmail returns multiple relevant results, Gemini will ask you to choose the correct one(s) before proceeding. This avoids guesswork and ensures the AI has the exact context you intended.
 
 #### 3. Combining Queries
 
