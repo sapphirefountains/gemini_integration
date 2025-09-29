@@ -43,7 +43,7 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
         frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
     if not model_name:
-        model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-flash"
+        model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
     try:
         model_instance = genai.GenerativeModel(model_name)
