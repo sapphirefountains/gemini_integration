@@ -197,7 +197,8 @@ def search_erpnext_documents(doctype, query, limit=5):
                 total_score += feedback_score[0][0] * 10 # Add a significant bonus/penalty
 
             if total_score > 0:
-                 scored_docs.append({"name": doc.name, "doctype": doctype, "score": total_score})
+                 label = doc.get(title_field) or doc.name
+                 scored_docs.append({"name": doc.name, "doctype": doctype, "score": total_score, "label": label})
 
         # Sort by score descending
         sorted_docs = sorted(scored_docs, key=lambda x: x['score'], reverse=True)

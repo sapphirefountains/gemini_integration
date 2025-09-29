@@ -201,10 +201,11 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
     const render_clarification_options = (intro_text, suggestions) => {
         let options_html = `<div class="clarification-container">
                                 <p>${intro_text}</p>
-                                <ol class="list-group list-group-numbered">`;
+                                <ol>`; // Using a simple <ol> for reliable numbering
         suggestions.forEach((opt) => {
-            const label = `${opt.doctype}: ${opt.name}`;
-            options_html += `<li class="list-group-item">
+            // Use the new descriptive label from the backend, with a fallback.
+            const label = opt.label || `${opt.doctype}: ${opt.name}`;
+            options_html += `<li>
                                 <a href="${opt.url}" target="_blank" rel="noopener noreferrer">${label}</a>
                              </li>`;
         });
