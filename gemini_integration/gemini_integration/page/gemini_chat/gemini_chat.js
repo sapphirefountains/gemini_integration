@@ -94,8 +94,8 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         df: {
             fieldtype: 'Select', label: 'Model',
             options: [
-                { label: "Gemini 1.5 Flash", value: "gemini-1.5-flash" },
-                { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
+                { label: "Gemini 2.5 Flash", value: "gemini-2.5-flash" },
+                { label: "Gemini 2.5 Pro", value: "gemini-2.5-pro" }
             ],
             change: function() {
                 try {
