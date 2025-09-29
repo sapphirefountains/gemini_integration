@@ -98,13 +98,22 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
                 { label: "Gemini 1.5 Pro", value: "gemini-1.5-pro" }
             ],
             change: function() {
-                if (frappe.storage) frappe.storage.set('gemini_last_model', this.get_value());
+                try {
+                    localStorage.setItem('gemini_last_model', this.get_value());
+                } catch (e) {
+                    console.error("localStorage is not available.", e);
+                }
             }
         },
         render_input: true,
     });
     
-    page.model_selector.set_value(frappe.storage.get('gemini_last_model') || 'gemini-1.5-flash');
+    try {
+        page.model_selector.set_value(localStorage.getItem('gemini_last_model') || 'gemini-1.5-flash');
+    } catch (e) {
+        console.error("localStorage is not available. Using default model.", e);
+        page.model_selector.set_value('gemini-1.5-flash');
+    }
     
     frappe.call({
         method: "gemini_integration.api.check_google_integration",

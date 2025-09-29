@@ -227,7 +227,11 @@ def process_google_callback(code, state, error):
         user_info = userinfo_service.userinfo().get().execute()
         google_email = user_info.get('email')
 
-        token_doc = frappe.get_doc("Google User Token", {"user": frappe.session.user}) if frappe.db.exists("Google User Token", {"user": frappe.session.user}) else frappe.new_doc("Google User Token")
+        doc_name = frappe.db.get_value("Google User Token", {"user": frappe.session.user}, "name")
+        if doc_name:
+            token_doc = frappe.get_doc("Google User Token", doc_name)
+        else:
+            token_doc = frappe.new_doc("Google User Token")
         token_doc.user = frappe.session.user
         token_doc.google_email = google_email
         token_doc.access_token = creds.token
@@ -256,10 +260,21 @@ def is_google_integrated():
 @handle_errors
 def get_user_credentials():
     """Retrieves stored credentials for the current user."""
-    if not is_google_integrated(): return None
+    if not is_google_integrated():
+        return None
     try:
-        token_doc = frappe.get_doc("Google User Token", {"user": frappe.session.user})
-        return Credentials(token=token_doc.access_token, refresh_token=token_doc.refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=get_google_settings().client_id, client_secret=get_google_settings().get_password('client_secret'), scopes=token_doc.scopes.split(" ") if token_doc.scopes else [])
+        doc_name = frappe.db.get_value("Google User Token", {"user": frappe.session.user}, "name")
+        if not doc_name:
+            return None
+        token_doc = frappe.get_doc("Google User Token", doc_name)
+        return Credentials(
+            token=token_doc.access_token,
+            refresh_token=token_doc.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=get_google_settings().client_id,
+            client_secret=get_google_settings().get_password('client_secret'),
+            scopes=token_doc.scopes.split(" ") if token_doc.scopes else []
+        )
     except Exception as e:
         frappe.log_error(f"Could not get user credentials: {e}", "Gemini Integration")
         return None
