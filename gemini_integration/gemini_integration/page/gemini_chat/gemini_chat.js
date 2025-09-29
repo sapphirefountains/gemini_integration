@@ -192,7 +192,13 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             },
             error: function(r) {
                 loading.hide();
-                let error_msg = r.message ? r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;") : "An unknown error occurred.";
+                let error_msg = "An unknown server error occurred. Please check the console or server logs for more details.";
+                if (r && r.message) {
+                    // Sanitize message to prevent potential XSS if rendered as HTML
+                    error_msg = r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                } else if (r && r.statusText) {
+                    error_msg = `Request failed: ${r.statusText}`;
+                }
                 add_to_history('gemini', `Error: ${error_msg}`);
             }
         });

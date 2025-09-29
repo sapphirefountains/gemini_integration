@@ -157,9 +157,11 @@ def search_erpnext_documents(doctype, query, limit=5):
         search_fields = meta.get_search_fields()
 
         field_weights = {
-            title_field: 3.0,
             'name': 3.0,
         }
+        if title_field:
+            field_weights[title_field] = 3.0
+
         for f in search_fields:
             if f not in field_weights:
                 field_weights[f] = 1.5
@@ -197,7 +199,7 @@ def search_erpnext_documents(doctype, query, limit=5):
                 total_score += feedback_score[0][0] * 10 # Add a significant bonus/penalty
 
             if total_score > 0:
-                 label = doc.get(title_field) or doc.name
+                 label = (title_field and doc.get(title_field)) or doc.name
                  scored_docs.append({"name": doc.name, "doctype": doctype, "score": total_score, "label": label})
 
         # Sort by score descending
