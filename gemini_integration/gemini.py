@@ -900,9 +900,13 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
                     full_context = get_doc_context(documents[0]['doctype'], documents[0]['name'])
                 # Otherwise, ask the user for confirmation.
                 elif documents:
+                    suggestions_with_urls = []
+                    for doc in documents:
+                        doc['url'] = get_url_to_form(doc['doctype'], doc['name'])
+                        suggestions_with_urls.append(doc)
                     return {
                         "response": "I found a few documents that might be what you're looking for. Please select the correct one:",
-                        "suggestions": documents,
+                        "suggestions": suggestions_with_urls,
                         "thoughts": f"Search for '{query}' in '{doctype}' yielded {len(documents)} potential matches.",
                         "conversation_id": conversation_id
                     }
@@ -960,9 +964,13 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
                 if possible_matches:
                     # Sort all found matches from all doctypes
                     sorted_matches = sorted(possible_matches, key=lambda x: x['score'], reverse=True)
+                    suggestions_with_urls = []
+                    for doc in sorted_matches[:5]:
+                        doc['url'] = get_url_to_form(doc['doctype'], doc['name'])
+                        suggestions_with_urls.append(doc)
                     return {
                         "response": f"I couldn't find a document with the exact name '{doc_name}'. Did you mean one of these?",
-                        "suggestions": sorted_matches[:5],
+                        "suggestions": suggestions_with_urls,
                         "thoughts": f"Direct lookup for '{doc_name}' failed. Fuzzy search across all DocTypes found {len(sorted_matches)} potential matches.",
                         "conversation_id": conversation_id
                     }

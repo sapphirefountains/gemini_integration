@@ -146,16 +146,14 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         frappe.msgprint({ title: __('Help: Referencing Data'), indicator: 'blue', message: help_html });
     });
 
-    const send_message = (prompt, selected_options = null) => {
-        if (!prompt && !selected_options) {
+    const send_message = (prompt) => {
+        if (!prompt) {
             prompt = chat_input.val().trim();
             if (!prompt) return;
         }
 
-        if (prompt) {
-            add_to_history('user', prompt);
-            chat_input.val('');
-        }
+        add_to_history('user', prompt);
+        chat_input.val('');
         
         let loading = frappe.msgprint({ message: __("Getting response from Gemini..."), indicator: 'blue', title: __('Please Wait') });
 
@@ -164,16 +162,22 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
             args: {
                 prompt: prompt,
                 model: page.model_selector.get_value(),
-                conversation_id: currentConversation,
-                selected_options: selected_options ? JSON.stringify(selected_options) : null
+                conversation_id: currentConversation
             },
             callback: function(r) {
                 loading.hide();
                 if (r.message) {
+                    // The response can be a string (for info messages) or an object
+                    if (typeof r.message === 'string') {
+                        add_to_history('gemini', r.message);
+                        return;
+                    }
+
                     if (r.message.thoughts) add_to_history('thoughts', r.message.thoughts);
 
-                    if (r.message.clarification_needed) {
-                        render_clarification_options(r.message.response, r.message.options);
+                    // Check for suggestions, which indicates clarification is needed
+                    if (r.message.suggestions && r.message.suggestions.length > 0) {
+                        render_clarification_options(r.message.response, r.message.suggestions);
                     } else {
                         add_to_history('gemini', r.message.response);
                     }
@@ -194,45 +198,24 @@ frappe.pages['gemini-chat'].on_page_load = function(wrapper) {
         });
     };
 
-    const render_clarification_options = (intro_text, options) => {
+    const render_clarification_options = (intro_text, suggestions) => {
         let options_html = `<div class="clarification-container">
                                 <p>${intro_text}</p>
-                                <ul class="list-group">`;
-        options.forEach((opt, index) => {
+                                <ol class="list-group list-group-numbered">`;
+        suggestions.forEach((opt) => {
+            const label = `${opt.doctype}: ${opt.name}`;
             options_html += `<li class="list-group-item">
-                                <input type="checkbox" id="clarify_opt_${index}" class="clarify-option-check">
-                                <label for="clarify_opt_${index}">${opt.label}</label>
+                                <a href="${opt.url}" target="_blank" rel="noopener noreferrer">${label}</a>
                              </li>`;
         });
-        options_html += `   </ul>
-                             <button class="btn btn-primary btn-sm clarification-submit-btn">Submit Selection</button>
+        options_html += `   </ol>
                            </div>`;
 
         let bubble = $(`<div class="chat-bubble gemini"></div>`);
         bubble.html(options_html);
-        bubble.find('.clarify-option-check').each((i, el) => {
-            $(el).data('option', options[i]);
-        });
         chat_history.append(bubble);
         chat_history.scrollTop(chat_history[0].scrollHeight);
     };
-
-    chat_history.on('click', '.clarification-submit-btn', function() {
-        const btn = $(this);
-        const container = btn.closest('.clarification-container');
-        const selected_options = [];
-
-        container.find('.clarify-option-check:checked').each(function() {
-            selected_options.push($(this).data('option'));
-        });
-
-        if (selected_options.length > 0) {
-            btn.prop('disabled', true).text('Submitted');
-            send_message(null, selected_options);
-        } else {
-            frappe.show_alert({message: "Please select at least one option.", indicator: "orange"});
-        }
-    });
 
     const add_to_history = (role, text) => {
         let bubble;
