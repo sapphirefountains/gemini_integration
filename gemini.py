@@ -109,9 +109,19 @@ def get_pdf_content(url):
 
 @log_activity
 def get_url_context(urls):
-    """Fetches content from a list of URLs and returns a formatted context string."""
+    """Fetches content from a list of URLs, respecting a blacklist, and returns a formatted context string."""
     full_context = ""
+    settings = frappe.get_single("Gemini Settings")
+    blacklist_str = settings.get("url_blacklist", "")
+    blacklist = [item.strip() for item in blacklist_str.split('\n') if item.strip()]
+
     for url in urls:
+        is_blacklisted = any(bl_item in url for bl_item in blacklist)
+
+        if is_blacklisted:
+            full_context += f"(System: The URL '{url}' was skipped because it is on the blacklist.)\n\n"
+            continue
+
         try:
             headers = requests.head(url, timeout=5, allow_redirects=True)
             headers.raise_for_status()

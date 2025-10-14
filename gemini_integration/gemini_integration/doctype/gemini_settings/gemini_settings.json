@@ -8,7 +8,8 @@
   "api_key",
   "model",
   "system_instruction",
-  "log_level"
+  "log_level",
+  "url_blacklist"
  ],
  "fields": [
   {
@@ -35,6 +36,12 @@
    "label": "Log Level",
    "options": "Debug\nInfo\nWarning\nError",
    "default": "Error"
+  },
+  {
+   "fieldname": "url_blacklist",
+   "fieldtype": "Text",
+   "label": "URL Blacklist",
+   "description": "A list of URLs or domains to blacklist, one per line. Any URL containing one of these strings will be blocked."
   }
  ],
  "issingle": 1,
