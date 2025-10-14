@@ -7,6 +7,10 @@ import json
 import base64
 from datetime import datetime, timedelta
 from thefuzz import process, fuzz
+import requests
+from bs4 import BeautifulSoup
+from PyPDF2 import PdfReader
+import io
 
 from gemini_integration.utils import handle_errors, log_activity
 
@@ -59,6 +63,78 @@ def generate_text(prompt, model_name=None, uploaded_files=None, generation_confi
     except Exception as e:
         frappe.log_error(f"Gemini API Error: {str(e)}", "Gemini Integration")
         frappe.throw("An error occurred while communicating with the Gemini API. Please check the Error Log for details.")
+
+
+# --- URL CONTEXT FETCHING ---
+
+@log_activity
+def extract_urls(text):
+    """Extracts all URLs from a given text."""
+    url_pattern = r'https?://[^\s/$.?#].[^\s]*'
+    return re.findall(url_pattern, text)
+
+
+@handle_errors
+def get_html_content(url):
+    """Fetches and extracts text content from a HTML URL."""
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        return soup.get_text(separator=' ', strip=True)
+    except requests.RequestException as e:
+        frappe.log_error(f"Error fetching URL {url}: {e}", "Gemini URL Fetcher")
+        return None
+
+
+@handle_errors
+def get_pdf_content(url):
+    """Fetches and extracts text content from a PDF URL."""
+    try:
+        response = requests.get(url, timeout=20)
+        response.raise_for_status()
+        with io.BytesIO(response.content) as f:
+            reader = PdfReader(f)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() or ""
+        return text
+    except requests.RequestException as e:
+        frappe.log_error(f"Error fetching PDF from {url}: {e}", "Gemini URL Fetcher")
+        return None
+    except Exception as e:
+        frappe.log_error(f"Error parsing PDF from {url}: {e}", "Gemini URL Fetcher")
+        return None
+
+
+@log_activity
+def get_url_context(urls):
+    """Fetches content from a list of URLs and returns a formatted context string."""
+    full_context = ""
+    for url in urls:
+        try:
+            headers = requests.head(url, timeout=5, allow_redirects=True)
+            content_type = headers.headers.get('Content-Type', '')
+
+            content = None
+            if 'application/pdf' in content_type:
+                content = get_pdf_content(url)
+            elif 'text/html' in content_type:
+                content = get_html_content(url)
+            else:
+                # Fallback for other text-based content types
+                content = get_html_content(url)
+
+            if content:
+                full_context += f"Content from URL '{url}':\n{content[:5000]}\n\n" # Limit content length
+            else:
+                full_context += f"(System: Could not retrieve or parse content from URL: {url})\n"
+        except requests.RequestException as e:
+            full_context += f"(System: Could not access URL: {url}. Error: {e})\n"
+            frappe.log_error(f"Error getting headers for {url}: {e}", "Gemini URL Fetcher")
+
+    return full_context
+
 
 # --- DYNAMIC DOCTYPE REFERENCING (@DOC-NAME) ---
 
@@ -491,6 +567,14 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
     full_context = ""
     thoughts = ""
     uploaded_files = []
+
+    # Extract and process URLs from the prompt
+    if prompt:
+        urls = extract_urls(prompt)
+        if urls:
+            url_context = get_url_context(urls)
+            full_context += url_context
+            thoughts += f"Extracted and processed {len(urls)} URLs.\n"
 
     if selected_options:
         options = json.loads(selected_options)

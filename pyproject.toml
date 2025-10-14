@@ -13,7 +13,9 @@ dependencies = [
     "google-generativeai",
     "google-api-python-client",
     "google-auth-oauthlib",
-    "thefuzz[speedup]"
+    "thefuzz[speedup]",
+    "beautifulsoup4",
+    "PyPDF2"
 ]
 
 [build-system]
