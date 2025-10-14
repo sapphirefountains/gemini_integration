@@ -37,7 +37,7 @@ def configure_gemini():
 
 @log_activity
 @handle_errors
-def generate_text(prompt, model_name=None, uploaded_files=None):
+def generate_text(prompt, model_name=None, uploaded_files=None, generation_config=None):
     """Generates text using a specified Gemini model."""
     if not configure_gemini():
         frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
@@ -45,10 +45,16 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
     if not model_name:
         model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
+    if generation_config is None:
+        generation_config = {}
+    if "max_output_tokens" not in generation_config:
+        if model_name in ["gemini-2.5-pro", "gemini-2.5-flash"]:
+            generation_config["max_output_tokens"] = 8192
+
     try:
         model_instance = genai.GenerativeModel(model_name)
         content = [prompt] + uploaded_files if uploaded_files else [prompt]
-        response = model_instance.generate_content(content)
+        response = model_instance.generate_content(content, generation_config=generation_config)
         return response.text
     except Exception as e:
         frappe.log_error(f"Gemini API Error: {str(e)}", "Gemini Integration")
@@ -440,7 +446,7 @@ def search_documents(query):
     return {"clarification_needed": False, "context": full_context, "thoughts": thoughts}
 
 
-def _generate_final_response(prompt, context, model, conversation_id, conversation_history, uploaded_files):
+def _generate_final_response(prompt, context, model, conversation_id, conversation_history, uploaded_files, generation_config=None):
     """Cleans prompt, assembles final context, generates text, and saves conversation."""
     clean_prompt = re.sub(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', '', prompt).strip()
 
@@ -460,7 +466,7 @@ def _generate_final_response(prompt, context, model, conversation_id, conversati
     final_prompt_parts.append("\nBased on the user query and provided context, provide a helpful response.")
 
     final_prompt = "\n".join(final_prompt_parts)
-    response_text = generate_text(final_prompt, model, uploaded_files)
+    response_text = generate_text(final_prompt, model, uploaded_files, generation_config=generation_config)
 
     conversation_history.append({"role": "user", "text": prompt})
     conversation_history.append({"role": "gemini", "text": response_text})
@@ -471,7 +477,7 @@ def _generate_final_response(prompt, context, model, conversation_id, conversati
 
 @log_activity
 @handle_errors
-def generate_chat_response(prompt, model=None, conversation_id=None, selected_options=None):
+def generate_chat_response(prompt, model=None, conversation_id=None, selected_options=None, generation_config=None):
     """Orchestrates chat interactions, including context fetching and clarification."""
     conversation_history = []
     if conversation_id:
@@ -499,7 +505,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
                 full_context += get_gmail_message_context(creds, data.get("message_id")) + "\n\n"
 
         original_prompt = next((entry['text'] for entry in reversed(conversation_history) if entry['role'] == 'user'), prompt)
-        return _generate_final_response(original_prompt, full_context, model, conversation_id, conversation_history, uploaded_files)
+        return _generate_final_response(original_prompt, full_context, model, conversation_id, conversation_history, uploaded_files, generation_config=generation_config)
 
     # Check if the prompt contains '@' references. If so, use the existing power-user logic.
     if '@' in prompt:
@@ -558,7 +564,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
         return {"clarification_needed": True, "options": clarification_options, "response": "I found a few items that could match. Please select the correct one(s):", "thoughts": thoughts, "conversation_id": conversation_id}
 
     thoughts += full_context
-    return _generate_final_response(prompt, full_context, model, conversation_id, conversation_history, uploaded_files)
+    return _generate_final_response(prompt, full_context, model, conversation_id, conversation_history, uploaded_files, generation_config=generation_config)
 
 
 def save_conversation(conversation_id, title, conversation):

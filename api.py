@@ -13,9 +13,12 @@ from gemini_integration.gemini import (
 @frappe.whitelist()
 @log_activity
 @handle_errors
-def generate(prompt, model=None):
+def generate(prompt, model=None, generation_config=None):
     """Generates text using the Gemini API."""
-    return generate_text(prompt, model)
+    if generation_config and isinstance(generation_config, str):
+        import json
+        generation_config = json.loads(generation_config)
+    return generate_text(prompt, model, generation_config=generation_config)
 
 
 @frappe.whitelist()
