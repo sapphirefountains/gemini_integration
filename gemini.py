@@ -6,7 +6,7 @@ import re
 import json
 import base64
 from datetime import datetime, timedelta
-from thefuzz import process
+from thefuzz import process, fuzz
 
 from gemini_integration.utils import handle_errors, log_activity
 
@@ -82,20 +82,29 @@ def get_doc_context(doctype, docname):
 def search_erpnext_documents(doctype, query, limit=1000):
     """Searches for documents in ERPNext with a query and returns a list of documents."""
     try:
-        fields = [df.fieldname for df in frappe.get_meta(doctype).fields if df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]]
-        all_docs = frappe.get_all(doctype, fields=fields)
-        keywords = re.findall(r'"(.*?)"|\w+', query)
+        # Include 'name' field for searching, as it's often the primary identifier.
+        fields = ["name"] + [df.fieldname for df in frappe.get_meta(doctype).fields if df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]]
+        all_docs = frappe.get_all(doctype, fields=list(set(fields))) # Use set to avoid duplicate fields
+
         matching_docs = []
         for doc in all_docs:
-            doc_text = " ".join([str(doc.get(field, '')) for field in fields])
-            score = sum(process.extractOne(keyword, [doc_text])[1] for keyword in keywords)
-            if (score / len(keywords)) > 80:
-                matching_docs.append({"name": doc.name})
-        documents = matching_docs[:limit]
-        disclaimer = f"(System: Searched {len(all_docs)} documents of type '{doctype}' and found {len(documents)} matches.)\n"
+            # Include the doctype name in the searchable text to improve context-aware search.
+            doc_text = f"{doctype} " + " ".join([str(doc.get(field, '')) for field in fields])
+
+            # token_set_ratio is good for matching phrases and ignoring word order.
+            score = fuzz.token_set_ratio(query.lower(), doc_text.lower())
+
+            if score > 75: # Adjusted threshold for token_set_ratio
+                matching_docs.append({"name": doc.name, "score": score})
+
+        # Sort by score in descending order and take the top results
+        sorted_matches = sorted(matching_docs, key=lambda x: x['score'], reverse=True)
+        documents = sorted_matches[:limit]
+
+        disclaimer = f"(System: Searched {len(all_docs)} documents of type '{doctype}' and found {len(documents)} potential matches.)\n"
         return documents, disclaimer
     except Exception as e:
-        frappe.log_error(f"Error searching ERPNext documents: {str(e)}")
+        frappe.log_error(f"Error searching ERPNext documents for doctype {doctype}: {str(e)}")
         return [], f"(System: Could not search documents of type '{doctype}'.)\n"
 
 
@@ -387,6 +396,50 @@ def get_gmail_message_context(credentials, message_id):
 
 # --- MAIN CHAT FUNCTIONALITY ---
 
+@log_activity
+@handle_errors
+def search_documents(query):
+    """
+    Searches for documents across all searchable doctypes based on a natural language query.
+    """
+    doctype_map = get_dynamic_doctype_map()
+    searchable_doctypes = list(set(doctype_map.values()))
+
+    all_matches = []
+    thoughts = ""
+
+    for doctype in searchable_doctypes:
+        matches, disclaimer = search_erpnext_documents(doctype, query, limit=100) # Limit per doctype to avoid overload
+        if matches:
+            for match in matches:
+                all_matches.append({"doctype": doctype, "name": match["name"]})
+        thoughts += disclaimer
+
+    if len(all_matches) > 20: # Threshold for asking for clarification
+        clarification_options = []
+        for match in all_matches[:20]: # Show first 20 options
+            clarification_options.append({
+                "type": "erpnext",
+                "label": f"ERPNext: {match['doctype']} '{match['name']}'",
+                "data": {"doctype": match['doctype'], "docname": match['name']}
+            })
+        return {
+            "clarification_needed": True,
+            "options": clarification_options,
+            "response": "I found a lot of documents that could match your query. Please select the most relevant one(s), or refine your search.",
+            "thoughts": thoughts
+        }
+
+    full_context = ""
+    for match in all_matches:
+        full_context += get_doc_context(match['doctype'], match['name']) + "\n\n"
+
+    if not full_context:
+        full_context = "(System: No relevant documents found across all ERPNext DocTypes.)\n"
+
+    return {"clarification_needed": False, "context": full_context, "thoughts": thoughts}
+
+
 def _generate_final_response(prompt, context, model, conversation_id, conversation_history, uploaded_files):
     """Cleans prompt, assembles final context, generates text, and saves conversation."""
     clean_prompt = re.sub(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', '', prompt).strip()
@@ -448,22 +501,36 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
         original_prompt = next((entry['text'] for entry in reversed(conversation_history) if entry['role'] == 'user'), prompt)
         return _generate_final_response(original_prompt, full_context, model, conversation_id, conversation_history, uploaded_files)
 
-    references = re.findall(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', prompt)
-    queries = [item.strip() for tpl in references for item in tpl if item]
-    clarification_options = []
+    # Check if the prompt contains '@' references. If so, use the existing power-user logic.
+    if '@' in prompt:
+        references = re.findall(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', prompt)
+        queries = [item.strip() for tpl in references for item in tpl if item]
+        clarification_options = []
 
-    for query in queries:
-        erp_matches = find_erpnext_references(query)
-        if len(erp_matches) == 1 and erp_matches[0]['score'] > 95:
-            match = erp_matches[0]
-            full_context += get_doc_context(match['doctype'], match['name']) + "\n\n"
-            thoughts += f"Found confident match for '{query}': {match['doctype']} {match['name']}.\n"
-        elif erp_matches:
-            thoughts += f"Found multiple matches for '{query}'. Asking for clarification.\n"
-            for match in erp_matches:
-                clarification_options.append({"type": "erpnext", "label": f"ERPNext: {match['doctype']} '{match['name']}'", "data": {"doctype": match['doctype'], "docname": match['name']}})
-        else:
-            full_context += f"(System: No ERPNext document found for '{query}'.)\n"
+        for query in queries:
+            erp_matches = find_erpnext_references(query)
+            if len(erp_matches) == 1 and erp_matches[0]['score'] > 95:
+                match = erp_matches[0]
+                full_context += get_doc_context(match['doctype'], match['name']) + "\n\n"
+                thoughts += f"Found confident match for '{query}': {match['doctype']} {match['name']}.\n"
+            elif erp_matches:
+                thoughts += f"Found multiple matches for '{query}'. Asking for clarification.\n"
+                for match in erp_matches:
+                    clarification_options.append({"type": "erpnext", "label": f"ERPNext: {match['doctype']} '{match['name']}'", "data": {"doctype": match['doctype'], "docname": match['name']}})
+            else:
+                full_context += f"(System: No ERPNext document found for '{query}'.)\n"
+    else:
+        # If no '@' references, use the new natural language search logic.
+        search_result = search_documents(prompt)
+        if search_result.get("clarification_needed"):
+            # Pass the clarification options to the user.
+            conversation_history.append({"role": "user", "text": prompt})
+            save_conversation(conversation_id, prompt, conversation_history)
+            search_result["conversation_id"] = conversation_id
+            return search_result
+
+        full_context = search_result.get("context", "")
+        thoughts = search_result.get("thoughts", "")
 
     creds = get_user_credentials() if is_google_integrated() else None
     if creds:
@@ -485,7 +552,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
                 for m in messages:
                     clarification_options.append({"type": "gmail", "label": f"Gmail: '{m['subject']}'", "data": {"message_id": m['id']}})
 
-    if clarification_options:
+    if 'clarification_options' in locals() and clarification_options:
         conversation_history.append({"role": "user", "text": prompt})
         save_conversation(conversation_id, prompt, conversation_history)
         return {"clarification_needed": True, "options": clarification_options, "response": "I found a few items that could match. Please select the correct one(s):", "thoughts": thoughts, "conversation_id": conversation_id}
