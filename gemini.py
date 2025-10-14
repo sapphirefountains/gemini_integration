@@ -293,6 +293,7 @@ def get_google_flow():
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/contacts.readonly",
     ]
     return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
 
@@ -404,7 +405,8 @@ def search_gmail_messages(credentials, query, limit=5):
     """Searches Gmail for messages and returns a list."""
     try:
         service = build('gmail', 'v1', credentials=credentials)
-        q = f'"{query}" in:anywhere' if query.strip() else 'in:inbox'
+        # The query should not be wrapped in double quotes for a keyword search.
+        q = f'{query} in:anywhere' if query.strip() else 'in:inbox'
         results = service.users().messages().list(userId='me', q=q, maxResults=limit).execute()
         messages = results.get('messages', [])
         if not messages: return []
@@ -424,6 +426,23 @@ def search_gmail_messages(credentials, query, limit=5):
         return email_data
     except HttpError as e:
         frappe.log_error(f"Gmail API Error: {e}", "Gemini Integration")
+        return []
+
+
+@log_activity
+@handle_errors
+def search_google_contacts(credentials, name_query, limit=5):
+    """Searches Google Contacts for a person by name."""
+    try:
+        service = build('people', 'v1', credentials=credentials)
+        results = service.people().searchContacts(
+            query=name_query,
+            pageSize=limit,
+            readMask="names,emailAddresses"
+        ).execute()
+        return results.get('results', [])
+    except HttpError as e:
+        frappe.log_error(f"Google People API Error: {e}", "Gemini Integration")
         return []
 
 
@@ -647,7 +666,28 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
                     clarification_options.append({"type": "gdrive", "label": f"Google Drive: '{f['name']}'", "data": {"file_id": f['id']}})
 
         if any(kw in prompt.lower() for kw in gmail_keywords):
-            messages = search_gmail_messages(creds, prompt)
+            search_query = prompt
+            # Try to find a contact name to refine the search. Case-insensitive search.
+            contact_name_match = re.search(r'(?:from|by|to)\s+([a-zA-Z\s]+)', prompt, re.IGNORECASE)
+            contact_name = contact_name_match.group(1).strip() if contact_name_match else None
+
+            if contact_name:
+                contacts = search_google_contacts(creds, contact_name)
+                if len(contacts) == 1:
+                    person = contacts[0].get('person', {})
+                    email_addresses = person.get('emailAddresses', [])
+                    if email_addresses:
+                        # If a single contact with an email is found, use it for the search.
+                        search_query = email_addresses[0].get('value')
+                        thoughts += f"Found a unique Google Contact for '{contact_name}'. Searching emails from '{search_query}'.\n"
+                    else:
+                        thoughts += f"Found contact '{contact_name}' but they have no email address. Using full prompt for search.\n"
+                elif len(contacts) > 1:
+                    thoughts += f"Found multiple contacts for '{contact_name}'. Using full prompt for a broader search.\n"
+                else:
+                    thoughts += f"No Google Contact found for '{contact_name}'. Using full prompt for search.\n"
+
+            messages = search_gmail_messages(creds, search_query)
             if len(messages) == 1:
                 full_context += get_gmail_message_context(creds, messages[0]['id']) + "\n\n"
             elif messages:
