@@ -114,6 +114,7 @@ def get_url_context(urls):
     for url in urls:
         try:
             headers = requests.head(url, timeout=5, allow_redirects=True)
+            headers.raise_for_status()
             content_type = headers.headers.get('Content-Type', '')
 
             content = None
@@ -125,13 +126,14 @@ def get_url_context(urls):
                 # Fallback for other text-based content types
                 content = get_html_content(url)
 
-            if content:
+            if content is not None:
                 full_context += f"Content from URL '{url}':\n{content[:5000]}\n\n" # Limit content length
             else:
-                full_context += f"(System: Could not retrieve or parse content from URL: {url})\n"
+                # This happens if get_pdf_content or get_html_content return None.
+                # Their internal errors are already logged. We throw a clear error here.
+                frappe.throw(f"Failed to retrieve or parse content from URL: {url}")
         except requests.RequestException as e:
-            full_context += f"(System: Could not access URL: {url}. Error: {e})\n"
-            frappe.log_error(f"Error getting headers for {url}: {e}", "Gemini URL Fetcher")
+            frappe.throw(f"Could not access URL: {url}. Error: {e}")
 
     return full_context
 
