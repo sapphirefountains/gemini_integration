@@ -233,37 +233,6 @@ def get_dynamic_doctype_map():
     return doctype_map
 
 
-@log_activity
-@handle_errors
-def find_erpnext_references(query, limit=5):
-    """Finds ERPNext document references using exact prefix and fuzzy search."""
-    matches = []
-    checked_docs = set()
-    doctype_map = get_dynamic_doctype_map()
-
-    if '-' in query:
-        prefix = query.split('-')[0].upper()
-        mapped_doctype = doctype_map.get(prefix)
-        if mapped_doctype and frappe.db.exists(mapped_doctype, query):
-            return [{"doctype": mapped_doctype, "name": query, "score": 100}]
-
-    searchable_doctypes = list(set(doctype_map.values()))
-    for doctype in searchable_doctypes:
-        try:
-            all_doc_names = [d['name'] for d in frappe.get_all(doctype, fields=['name'], limit_page_length=2000)]
-            if not all_doc_names:
-                continue
-            results = process.extract(query, all_doc_names, limit=limit)
-            for name, score in results:
-                if score >= 85:
-                    if (doctype, name) not in checked_docs:
-                        matches.append({"doctype": doctype, "name": name, "score": score})
-                        checked_docs.add((doctype, name))
-        except Exception as e:
-            frappe.log(f"Could not perform fuzzy search in doctype {doctype}: {e}", "Gemini Fuzzy Search")
-
-    return sorted(matches, key=lambda x: x['score'], reverse=True)[:limit]
-
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
 
 @log_activity
@@ -622,36 +591,40 @@ def generate_chat_response(prompt, model=None, conversation_id=None, selected_op
         original_prompt = next((entry['text'] for entry in reversed(conversation_history) if entry['role'] == 'user'), prompt)
         return _generate_final_response(original_prompt, full_context, model, conversation_id, conversation_history, uploaded_files, generation_config=generation_config)
 
-    # Check if the prompt contains '@' references. If so, use the existing power-user logic.
-    if '@' in prompt:
-        references = re.findall(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', prompt)
-        queries = [item.strip() for tpl in references for item in tpl if item]
-        clarification_options = []
+    # Always use the natural language search logic.
+    # Clean the prompt to handle '@' references as simple text.
+    search_query = re.sub(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', r'\1\2', prompt).strip()
+    search_result = search_documents(search_query)
 
-        for query in queries:
-            erp_matches = find_erpnext_references(query)
-            if len(erp_matches) == 1 and erp_matches[0]['score'] > 95:
-                match = erp_matches[0]
-                full_context += get_doc_context(match['doctype'], match['name']) + "\n\n"
-                thoughts += f"Found confident match for '{query}': {match['doctype']} {match['name']}.\n"
-            elif erp_matches:
-                thoughts += f"Found multiple matches for '{query}'. Asking for clarification.\n"
-                for match in erp_matches:
-                    clarification_options.append({"type": "erpnext", "label": f"ERPNext: {match['doctype']} '{match['name']}'", "data": {"doctype": match['doctype'], "docname": match['name']}})
-            else:
-                full_context += f"(System: No ERPNext document found for '{query}'.)\n"
-    else:
-        # If no '@' references, use the new natural language search logic.
-        search_result = search_documents(prompt)
-        if search_result.get("clarification_needed"):
-            # Pass the clarification options to the user.
-            conversation_history.append({"role": "user", "text": prompt})
-            save_conversation(conversation_id, prompt, conversation_history)
-            search_result["conversation_id"] = conversation_id
-            return search_result
+    if search_result.get("clarification_needed"):
+        # Pass the clarification options to the user.
+        conversation_history.append({"role": "user", "text": prompt})
+        new_conversation_id = save_conversation(conversation_id, prompt, conversation_history)
+        search_result["conversation_id"] = new_conversation_id
+        # Also search Google Workspace if clarification is needed for ERPNext docs
+        creds = get_user_credentials() if is_google_integrated() else None
+        if creds:
+            # Re-use the clarification options from the search_result
+            clarification_options = search_result.get("options", [])
+            gdrive_keywords = ['drive', 'file', 'doc', 'document', 'sheet', 'slide']
+            gmail_keywords = ['email', 'mail', 'gmail']
 
-        full_context = search_result.get("context", "")
-        thoughts = search_result.get("thoughts", "")
+            if any(kw in prompt.lower() for kw in gdrive_keywords):
+                files = search_drive_files(creds, search_query)
+                for f in files:
+                    clarification_options.append({"type": "gdrive", "label": f"Google Drive: '{f['name']}'", "data": {"file_id": f['id']}})
+
+            if any(kw in prompt.lower() for kw in gmail_keywords):
+                messages = search_gmail_messages(creds, search_query)
+                for m in messages:
+                    clarification_options.append({"type": "gmail", "label": f"Gmail: '{m['subject']}'", "data": {"message_id": m['id']}})
+
+            search_result["options"] = clarification_options
+
+        return search_result
+
+    full_context += search_result.get("context", "")
+    thoughts += search_result.get("thoughts", "")
 
     creds = get_user_credentials() if is_google_integrated() else None
     if creds:
