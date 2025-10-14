@@ -497,9 +497,11 @@ def search_documents(query):
                 all_matches.append({"doctype": doctype, "name": match["name"]})
         thoughts += disclaimer
 
-    if len(all_matches) > 20: # Threshold for asking for clarification
+    # If more than one document is found, ask the user for clarification.
+    if len(all_matches) > 1:
         clarification_options = []
-        for match in all_matches[:20]: # Show first 20 options
+        # Limit the number of options to a reasonable number to avoid overwhelming the user.
+        for match in all_matches[:20]:
             clarification_options.append({
                 "type": "erpnext",
                 "label": f"ERPNext: {match['doctype']} '{match['name']}'",
@@ -508,12 +510,14 @@ def search_documents(query):
         return {
             "clarification_needed": True,
             "options": clarification_options,
-            "response": "I found a lot of documents that could match your query. Please select the most relevant one(s), or refine your search.",
+            "response": "I found a few documents that could match your query. Please select the most relevant one to continue.",
             "thoughts": thoughts
         }
 
     full_context = ""
-    for match in all_matches:
+    # If there is only one match, or after clarification, build the context.
+    if len(all_matches) == 1:
+        match = all_matches[0]
         full_context += get_doc_context(match['doctype'], match['name']) + "\n\n"
 
     if not full_context:
