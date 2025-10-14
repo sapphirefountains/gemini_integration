@@ -7,6 +7,7 @@ import json
 import base64
 from datetime import datetime, timedelta
 from thefuzz import process, fuzz
+import requests
 
 from gemini_integration.utils import handle_errors, log_activity
 
@@ -297,6 +298,7 @@ def get_google_flow():
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/contacts.readonly",
     ]
     return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
 
@@ -571,6 +573,83 @@ def search_calendar(credentials, query):
         return calendar_context
     except HttpError as error:
         return f"An error occurred with Google Calendar: {error}"
+
+
+@log_activity
+@handle_errors
+def search_google_contacts(credentials, name):
+    """Searches Google Contacts for a person by name and returns the best match.
+
+    Args:
+        credentials (google.oauth2.credentials.Credentials): The user's credentials.
+        name (str): The name of the person to search for.
+
+    Returns:
+        dict: A dictionary containing the best match or a list of suggestions.
+    """
+    try:
+        people_service = build('people', 'v1', credentials=credentials)
+        gmail_service = build('gmail', 'v1', credentials=credentials)
+
+        # Search for the contact
+        results = people_service.people().searchContacts(
+            query=name,
+            pageSize=5,
+            readMask='names,emailAddresses,photos'
+        ).execute()
+
+        people = results.get('results', [])
+        if not people:
+            return {"suggestions": []}
+
+        scored_contacts = []
+        for person_result in people:
+            person = person_result.get('person', {})
+            display_name = person.get('names', [{}])[0].get('displayName', 'N/A')
+            email = person.get('emailAddresses', [{}])[0].get('value')
+            photo_url = person.get('photos', [{}])[0].get('url')
+
+            if not email:
+                continue
+
+            # Calculate a confidence score
+            score = fuzz.token_set_ratio(name, display_name) / 100.0
+
+            # Check for recent emails to boost score
+            try:
+                recent_emails = gmail_service.users().messages().list(
+                    userId='me',
+                    q=f'from:{email} or to:{email}',
+                    maxResults=5
+                ).execute().get('messages', [])
+                if recent_emails:
+                    score *= 1.2 # Boost score by 20% for recent communication
+            except HttpError:
+                pass # Ignore errors if we can't search gmail
+
+            # Ensure score doesn't exceed 1.0
+            score = min(score, 1.0)
+
+            scored_contacts.append({
+                "name": display_name,
+                "email": email,
+                "photo_url": photo_url,
+                "score": score
+            })
+
+        # Sort by score descending
+        sorted_contacts = sorted(scored_contacts, key=lambda x: x['score'], reverse=True)
+
+        threshold = frappe.db.get_single_value("Gemini Settings", "contact_confidence_threshold") or 0.95
+
+        if sorted_contacts and sorted_contacts[0]['score'] >= threshold:
+            return {"best_match": sorted_contacts[0]}
+        else:
+            return {"suggestions": sorted_contacts}
+
+    except HttpError as error:
+        frappe.log_error(f"Google People API Error for query '{name}': {error.content}", "Gemini Contact Search Error")
+        return {"error": "An API error occurred during contact search."}
 
 
 @log_activity
@@ -855,8 +934,45 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
             pass
 
     # 1. Find all ERPNext document references starting with '@'
-    references = re.findall(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', prompt)
+    references = re.findall(r'@([a-zA-Z0-9\s-]+)(?![\.\w])|@"([^"]+)"', prompt)
     doc_names = [item for tpl in references for item in tpl if item]
+    thoughts = ""
+
+    # 1a. Check for contact search intent if no specific @doc is mentioned.
+    if not doc_names:
+        # Regex to find patterns like "email from [Name]" or "find [Name]"
+        contact_search_match = re.search(r'\b(email|mail|message|from|find|search for)\b\s+([A-Z][a-zA-Z\s]+)', prompt, re.IGNORECASE)
+        if contact_search_match:
+            person_name = contact_search_match.group(2).strip()
+
+            creds = get_user_credentials()
+            if creds:
+                contact_result = search_google_contacts(creds, person_name)
+
+                if contact_result.get("best_match"):
+                    contact = contact_result["best_match"]
+                    prompt = prompt.replace(person_name, contact['email'])
+                    thoughts += f"Contact search found '{contact['name']}' ({contact['email']}) for '{person_name}'.\n"
+
+                elif contact_result.get("suggestions"):
+                    suggestions = contact_result["suggestions"]
+                    # Rename 'photo_url' to 'url' for consistency with doc suggestions
+                    for sugg in suggestions:
+                        sugg['url'] = sugg.pop('photo_url', None)
+                    return {
+                        "response": f"I found a few people named '{person_name}'. Which one did you mean?",
+                        "suggestions": suggestions,
+                        "thoughts": f"Contact search for '{person_name}' yielded {len(suggestions)} potential matches.",
+                        "conversation_id": conversation_id
+                    }
+
+                elif contact_result.get("error"):
+                    return {
+                        "response": f"Sorry, I encountered an error while searching for '{person_name}' in your contacts.",
+                        "thoughts": f"Contact search for '{person_name}' failed with an error.",
+                        "conversation_id": conversation_id
+                    }
+
 
     # 2. If no '@' references are found, check for potential IDs the user forgot to mark.
     if not doc_names:
@@ -1039,7 +1155,6 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
             google_context += search_drive(creds, search_prompt)
 
     # Assemble thoughts for the UI
-    thoughts = ""
     if 'full_context' in locals() and full_context:
         thoughts += f"--- ERPNext Data Context ---\n{full_context}\n"
     
@@ -1047,7 +1162,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
         thoughts += f"--- Google Workspace Data Context ---\n{google_context}\n"
 
     # 5. Clean the prompt of all reference syntax before sending it to the AI.
-    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)|@"([^"]+)"', '', prompt)
+    clean_prompt = re.sub(r'@([a-zA-Z0-9\s-]+)(?![\.\w])|@"([^"]+)"', '', prompt)
     clean_prompt = re.sub(r'@gdrive/[\w-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@file/[\w\d\/\.-]+', '', clean_prompt).strip()
     clean_prompt = re.sub(r'@gmail/[\w-]+', '', clean_prompt).strip()

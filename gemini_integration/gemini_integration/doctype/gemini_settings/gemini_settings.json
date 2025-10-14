@@ -9,7 +9,8 @@
   "model",
   "system_instruction",
   "log_level",
-  "url_blacklist"
+  "url_blacklist",
+  "contact_confidence_threshold"
  ],
  "fields": [
   {
@@ -42,6 +43,13 @@
    "fieldtype": "Text",
    "label": "URL Blacklist",
    "description": "A list of URLs or domains to blacklist, one per line. Any URL containing one of these strings will be blocked."
+  },
+  {
+   "fieldname": "contact_confidence_threshold",
+   "fieldtype": "Float",
+   "label": "Contact Confidence Threshold",
+   "default": "0.95",
+   "description": "The confidence level required to automatically select a contact when searching by name (0.0 to 1.0)."
   }
  ],
  "issingle": 1,
