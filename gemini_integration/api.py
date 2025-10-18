@@ -11,9 +11,9 @@ from gemini_integration.gemini import (
 	is_google_integrated,
 	process_google_callback,
 	record_feedback,
-	search_google_drive,
-	search_google_mail,
 )
+from gemini_integration.tools import search_drive as search_google_drive
+from gemini_integration.tools import search_gmail as search_google_mail
 from gemini_integration.utils import handle_errors, log_activity
 
 
