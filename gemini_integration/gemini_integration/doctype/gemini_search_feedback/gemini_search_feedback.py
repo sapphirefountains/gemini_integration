@@ -11,4 +11,5 @@ class GeminiSearchFeedback(Document):
 	This document stores user feedback on the relevance of search results,
 	which can be used to improve the search algorithm over time.
 	"""
+
 	pass

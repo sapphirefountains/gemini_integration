@@ -3,6 +3,5 @@
 
 frappe.ui.form.on("Gemini Search Feedback", {
 	// refresh: function(frm) {
-
 	// }
 });

@@ -26,6 +26,7 @@ repos:
 
       - id: ruff
         name: "Run ruff linter"
+        args: ["--fix"]
 
       - id: ruff-format
         name: "Run ruff formatter"
