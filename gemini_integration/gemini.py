@@ -361,14 +361,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	if not mentioned_services:
 		mentioned_services = ["erpnext"]  # Default to ERPNext if no service is mentioned
 
-	# 2. Get the tools for the mentioned services
-	tools = [
-		tool
-		for tool in mcp._tools.values()
-		if getattr(tool, "service", None) in mentioned_services
-	]
-
-	# 3. Get user credentials if any Google services are mentioned
+	# 2. Get user credentials if any Google services are mentioned
 	# This part can be improved to be more dynamic based on tool requirements
 	kwargs = {}
 	google_services = ["gmail", "drive", "calendar"]
@@ -384,8 +377,8 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 				"conversation_id": conversation_id,
 			}
 
-	# 4. Execute the prompt using the MCP server
-	response = mcp.execute(prompt, tools=tools, **kwargs)
+	# 3. Execute the prompt using the MCP server
+	response = mcp.execute(prompt, **kwargs)
 
 	# 5. Save the conversation
 	conversation_history.append({"role": "user", "text": prompt})
