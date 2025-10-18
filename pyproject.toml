@@ -15,7 +15,8 @@ dependencies = [
     "google-auth-oauthlib",
     "thefuzz[speedup]",
     "beautifulsoup4",
-    "PyPDF2"
+    "PyPDF2",
+    "frappe-mcp"
 ]
 
 [build-system]

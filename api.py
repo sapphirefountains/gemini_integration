@@ -27,11 +27,9 @@ def generate(prompt, model=None, generation_config=None):
 @frappe.whitelist()
 @log_activity
 @handle_errors
-def chat(prompt=None, model=None, conversation_id=None, selected_options=None):
-	"""Handles chat interactions with the Gemini API, including clarifications."""
-	if not prompt and not selected_options:
-		frappe.throw("A prompt or selected options are required.")
-	return generate_chat_response(prompt, model, conversation_id, selected_options)
+def chat(prompt, model=None, conversation_id=None):
+	"""Handles chat interactions with the Gemini API."""
+	return generate_chat_response(prompt, model, conversation_id)
 
 
 @frappe.whitelist()
