@@ -1,12 +1,7 @@
 import frappe
 import frappe_mcp
 
-mcp = frappe_mcp.MCP(
-	"gemini",
-	__name__,
-	"Gemini Integration",
-	"An MCP server for Gemini Integration.",
-)
+mcp = frappe_mcp.MCP(__name__)
 
 
 @mcp.register()
