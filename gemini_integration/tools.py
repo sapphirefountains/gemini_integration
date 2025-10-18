@@ -3,6 +3,11 @@ import functools
 import logging
 import traceback
 from datetime import datetime, timedelta
+from io import BytesIO
+from email.mime.text import MIMEText
+from googleapiclient.http import MediaIoBaseUpload
+import base64
+
 
 import frappe
 from googleapiclient.discovery import build
@@ -529,3 +534,285 @@ def search_google_contacts(credentials: Credentials, name: str) -> dict:
 		return {"error": "An API error occurred during contact search."}
 
 search_google_contacts.service = "google"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def create_drive_file(credentials: Credentials, file_name: str, file_content: str, folder_id: str = None) -> str:
+	"""Creates a new file in Google Drive.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    file_name (str): The name of the file to create.
+	    file_content (str): The content of the file.
+	    folder_id (str, optional): The ID of the folder to create the file in. Defaults to None.
+
+	Returns:
+	    str: A confirmation message with the link to the new file, or an error message.
+	"""
+	try:
+		service = build("drive", "v3", credentials=credentials)
+		file_metadata = {"name": file_name}
+		if folder_id:
+			file_metadata["parents"] = [folder_id]
+
+		fh = BytesIO(file_content.encode('utf-8'))
+		media = MediaIoBaseUpload(fh, mimetype='text/plain')
+
+		file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+		return f"File '{file_name}' created successfully. Link: {file.get('webViewLink')}"
+	except HttpError as error:
+		return f"An error occurred with Google Drive: {error}"
+
+create_drive_file.service = "drive"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def update_drive_file(credentials: Credentials, file_id: str, file_content: str) -> str:
+	"""Updates the content of an existing file in Google Drive.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    file_id (str): The ID of the file to update.
+	    file_content (str): The new content of the file.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	try:
+		service = build("drive", "v3", credentials=credentials)
+		fh = BytesIO(file_content.encode('utf-8'))
+		media = MediaIoBaseUpload(fh, mimetype='text/plain')
+
+		file = service.files().update(fileId=file_id, media_body=media).execute()
+		return f"File updated successfully."
+	except HttpError as error:
+		return f"An error occurred with Google Drive: {error}"
+
+update_drive_file.service = "drive"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def delete_drive_file(credentials: Credentials, file_id: str, confirm: bool = False) -> str:
+	"""Deletes a file from Google Drive.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    file_id (str): The ID of the file to delete.
+	    confirm (bool, optional): Confirmation to delete. Defaults to False.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	if not confirm:
+		return "Please confirm that you want to delete this file by calling this function again with confirm=True."
+	try:
+		service = build("drive", "v3", credentials=credentials)
+		service.files().delete(fileId=file_id).execute()
+		return "File deleted successfully."
+	except HttpError as error:
+		return f"An error occurred with Google Drive: {error}"
+
+delete_drive_file.service = "drive"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def send_gmail_message(credentials: Credentials, to: str, subject: str, body: str) -> str:
+	"""Sends an email using Gmail.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    to (str): The recipient's email address.
+	    subject (str): The subject of the email.
+	    body (str): The body of the email.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	try:
+		service = build("gmail", "v1", credentials=credentials)
+		message = MIMEText(body)
+		message['to'] = to
+		message['subject'] = subject
+		raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+		create_message = {'raw': raw_message}
+		send_message = (service.users().messages().send(userId="me", body=create_message).execute())
+		return f"Email sent successfully with Message ID: {send_message['id']}"
+	except HttpError as error:
+		return f"An error occurred with Gmail: {error}"
+
+send_gmail_message.service = "gmail"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def modify_gmail_label(credentials: Credentials, message_id: str, add_labels: list = None, remove_labels: list = None) -> str:
+	"""Adds or removes labels from a Gmail message.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    message_id (str): The ID of the message to modify.
+	    add_labels (list, optional): A list of label IDs to add. Defaults to None.
+	    remove_labels (list, optional): A list of label IDs to remove. Defaults to None.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	try:
+		service = build("gmail", "v1", credentials=credentials)
+		body = {}
+		if add_labels:
+			body['addLabelIds'] = add_labels
+		if remove_labels:
+			body['removeLabelIds'] = remove_labels
+
+		if not body:
+			return "Please specify labels to add or remove."
+
+		service.users().messages().modify(userId="me", id=message_id, body=body).execute()
+		return "Labels modified successfully."
+	except HttpError as error:
+		return f"An error occurred with Gmail: {error}"
+
+modify_gmail_label.service = "gmail"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def delete_gmail_message(credentials: Credentials, message_id: str, confirm: bool = False) -> str:
+	"""Deletes a Gmail message (moves to trash).
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    message_id (str): The ID of the message to delete.
+	    confirm (bool, optional): Confirmation to delete. Defaults to False.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	if not confirm:
+		return "Please confirm that you want to delete this message by calling this function again with confirm=True."
+	try:
+		service = build("gmail", "v1", credentials=credentials)
+		service.users().messages().trash(userId="me", id=message_id).execute()
+		return "Message moved to trash successfully."
+	except HttpError as error:
+		return f"An error occurred with Gmail: {error}"
+
+delete_gmail_message.service = "gmail"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def create_google_calendar_event(credentials: Credentials, summary: str, start_time: str, end_time: str, attendees: list = None) -> str:
+	"""Creates a new event in Google Calendar.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    summary (str): The summary/title of the event.
+	    start_time (str): The start time of the event in ISO format (e.g., '2024-01-01T10:00:00-07:00').
+	    end_time (str): The end time of the event in ISO format.
+	    attendees (list, optional): A list of attendee email addresses. Defaults to None.
+
+	Returns:
+	    str: A confirmation message with a link to the event, or an error message.
+	"""
+	try:
+		service = build("calendar", "v3", credentials=credentials)
+		event = {
+			'summary': summary,
+			'start': {
+				'dateTime': start_time,
+				'timeZone': frappe.db.get_single_value('System Settings', 'time_zone'),
+			},
+			'end': {
+				'dateTime': end_time,
+				'timeZone': frappe.db.get_single_value('System Settings', 'time_zone'),
+			},
+		}
+		if attendees:
+			event['attendees'] = [{'email': email} for email in attendees]
+
+		created_event = service.events().insert(calendarId='primary', body=event).execute()
+		return f"Event created successfully. Link: {created_event.get('htmlLink')}"
+	except HttpError as error:
+		return f"An error occurred with Google Calendar: {error}"
+
+create_google_calendar_event.service = "calendar"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def update_google_calendar_event(credentials: Credentials, event_id: str, summary: str = None, start_time: str = None, end_time: str = None, attendees: list = None) -> str:
+	"""Updates an existing event in Google Calendar.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    event_id (str): The ID of the event to update.
+	    summary (str, optional): The new summary/title of the event. Defaults to None.
+	    start_time (str, optional): The new start time of the event in ISO format. Defaults to None.
+	    end_time (str, optional): The new end time of the event in ISO format. Defaults to None.
+	    attendees (list, optional): The new list of attendee email addresses. Defaults to None.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	try:
+		service = build("calendar", "v3", credentials=credentials)
+
+		# Get the existing event to update it
+		event = service.events().get(calendarId='primary', eventId=event_id).execute()
+
+		if summary:
+			event['summary'] = summary
+		if start_time:
+			event['start']['dateTime'] = start_time
+		if end_time:
+			event['end']['dateTime'] = end_time
+		if attendees:
+			event['attendees'] = [{'email': email} for email in attendees]
+
+		updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
+		return f"Event updated successfully. Link: {updated_event.get('htmlLink')}"
+
+	except HttpError as error:
+		return f"An error occurred with Google Calendar: {error}"
+
+update_google_calendar_event.service = "calendar"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def delete_google_calendar_event(credentials: Credentials, event_id: str, confirm: bool = False) -> str:
+	"""Deletes an event from Google Calendar.
+
+	Args:
+	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
+	    event_id (str): The ID of the event to delete.
+	    confirm (bool, optional): Confirmation to delete. Defaults to False.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	if not confirm:
+		return "Please confirm that you want to delete this event by calling this function again with confirm=True."
+	try:
+		service = build("calendar", "v3", credentials=credentials)
+		service.events().delete(calendarId='primary', eventId=event_id).execute()
+		return "Event deleted successfully."
+	except HttpError as error:
+		return f"An error occurred with Google Calendar: {error}"
+
+delete_google_calendar_event.service = "calendar"

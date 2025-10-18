@@ -127,9 +127,9 @@ def get_google_flow():
 	scopes = [
 		"https://www.googleapis.com/auth/userinfo.email",
 		"openid",
-		"https://www.googleapis.com/auth/gmail.readonly",
-		"https://www.googleapis.com/auth/drive.readonly",
-		"https://www.googleapis.com/auth/calendar.readonly",
+		"https://www.googleapis.com/auth/gmail.modify",
+		"https://www.googleapis.com/auth/drive",
+		"https://www.googleapis.com/auth/calendar",
 		"https://www.googleapis.com/auth/contacts.readonly",
 	]
 	return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
