@@ -17,9 +17,15 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from PyPDF2 import PdfReader
-from thefuzz import fuzz, process
 
-from gemini_integration.utils import handle_errors, log_activity
+from gemini_integration.mcp import mcp
+from gemini_integration.utils import (
+	get_doc_context,
+	get_dynamic_doctype_map,
+	handle_errors,
+	log_activity,
+	search_erpnext_documents,
+)
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
 
@@ -155,104 +161,6 @@ def get_url_context(urls):
 			frappe.throw(f"Could not access URL: {url}. Error: {e}")
 
 	return full_context
-
-
-# --- DYNAMIC DOCTYPE REFERENCING (@DOC-NAME) ---
-
-
-@log_activity
-@handle_errors
-def get_doc_context(doctype, docname):
-	"""Fetches and formats a document's data for context."""
-	try:
-		doc = frappe.get_doc(doctype, docname)
-		doc_dict = doc.as_dict()
-		context = f"Context for {doctype} '{docname}':\n"
-		for field, value in doc_dict.items():
-			if value and not isinstance(value, list):
-				context += f"- {field}: {value}\n"
-		doc_url = get_url_to_form(doctype, docname)
-		context += f"\nLink: {doc_url}"
-		return context
-	except frappe.DoesNotExistError:
-		return f"(System: Document '{docname}' of type '{doctype}' not found.)\n"
-	except Exception as e:
-		frappe.log_error(f"Error fetching doc context for {doctype} {docname}: {e!s}")
-		return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
-
-
-@log_activity
-@handle_errors
-def search_erpnext_documents(doctype, query, limit=1000):
-	"""Searches for documents in ERPNext with a query and returns a list of documents."""
-	try:
-		# Include 'name' field for searching, as it's often the primary identifier.
-		fields = ["name"] + [
-			df.fieldname
-			for df in frappe.get_meta(doctype).fields
-			if df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]
-		]
-		all_docs = frappe.get_all(doctype, fields=list(set(fields)))  # Use set to avoid duplicate fields
-
-		matching_docs = []
-		for doc in all_docs:
-			# Include the doctype name in the searchable text to improve context-aware search.
-			doc_text = f"{doctype} " + " ".join([str(doc.get(field, "")) for field in fields])
-
-			# token_set_ratio is good for matching phrases and ignoring word order.
-			score = fuzz.token_set_ratio(query.lower(), doc_text.lower())
-
-			if score > 75:  # Adjusted threshold for token_set_ratio
-				matching_docs.append({"name": doc.name, "score": score})
-
-		# Sort by score in descending order and take the top results
-		sorted_matches = sorted(matching_docs, key=lambda x: x["score"], reverse=True)
-		documents = sorted_matches[:limit]
-
-		disclaimer = f"(System: Searched {len(all_docs)} documents of type '{doctype}' and found {len(documents)} potential matches.)\n"
-		return documents, disclaimer
-	except Exception as e:
-		frappe.log_error(f"Error searching ERPNext documents for doctype {doctype}: {e!s}")
-		return [], f"(System: Could not search documents of type '{doctype}'.)\n"
-
-
-@log_activity
-@handle_errors
-def get_dynamic_doctype_map():
-	"""Builds and caches a map of naming series prefixes to DocTypes."""
-	cache_key = "gemini_doctype_prefix_map"
-	doctype_map = frappe.cache().get_value(cache_key)
-	if doctype_map:
-		return doctype_map
-
-	doctype_map = {}
-	all_doctypes = frappe.get_all("DocType", fields=["name", "autoname"])
-	for doc in all_doctypes:
-		autoname = doc.get("autoname")
-		if isinstance(autoname, str):
-			match = re.match(r"^([A-Z_]+)[\-./]", autoname, re.IGNORECASE)
-			if match:
-				doctype_map[match.group(1).upper()] = doc.name
-
-	hardcoded_map = {
-		"PRJ": "Project",
-		"TASK": "Task",
-		"SO": "Sales Order",
-		"PO": "Purchase Order",
-		"QUO": "Quotation",
-		"SI": "Sales Invoice",
-		"PI": "Purchase Invoice",
-		"CUST": "Customer",
-		"SUPP": "Supplier",
-		"ITEM": "Item",
-		"LEAD": "Lead",
-		"OPP": "Opportunity",
-	}
-	hardcoded_map.update(doctype_map)
-	doctype_map = hardcoded_map
-
-	frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600)
-	return doctype_map
 
 
 # --- OAUTH AND GOOGLE API FUNCTIONS ---
@@ -574,94 +482,6 @@ def get_gmail_message_context(credentials, message_id):
 # --- MAIN CHAT FUNCTIONALITY ---
 
 
-@log_activity
-@handle_errors
-def search_documents(query):
-	"""
-	Searches for documents across all searchable doctypes based on a natural language query.
-	"""
-	doctype_map = get_dynamic_doctype_map()
-	searchable_doctypes = list(set(doctype_map.values()))
-
-	all_matches = []
-	thoughts = ""
-
-	for doctype in searchable_doctypes:
-		matches, disclaimer = search_erpnext_documents(
-			doctype, query, limit=100
-		)  # Limit per doctype to avoid overload
-		if matches:
-			for match in matches:
-				all_matches.append({"doctype": doctype, "name": match["name"]})
-		thoughts += disclaimer
-
-	# If more than one document is found, ask the user for clarification.
-	if len(all_matches) > 1:
-		clarification_options = []
-		# Limit the number of options to a reasonable number to avoid overwhelming the user.
-		for match in all_matches[:20]:
-			clarification_options.append(
-				{
-					"type": "erpnext",
-					"label": f"ERPNext: {match['doctype']} '{match['name']}'",
-					"data": {"doctype": match["doctype"], "docname": match["name"]},
-				}
-			)
-		return {
-			"clarification_needed": True,
-			"options": clarification_options,
-			"response": "I found a few documents that could match your query. Please select the most relevant one to continue.",
-			"thoughts": thoughts,
-		}
-
-	full_context = ""
-	# If there is only one match, or after clarification, build the context.
-	if len(all_matches) == 1:
-		match = all_matches[0]
-		full_context += get_doc_context(match["doctype"], match["name"]) + "\n\n"
-
-	if not full_context:
-		full_context = "(System: No relevant documents found across all ERPNext DocTypes.)\n"
-
-	return {"clarification_needed": False, "context": full_context, "thoughts": thoughts}
-
-
-def _generate_final_response(
-	prompt, context, model, conversation_id, conversation_history, uploaded_files, generation_config=None
-):
-	"""Cleans prompt, assembles final context, generates text, and saves conversation."""
-	clean_prompt = re.sub(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', "", prompt).strip()
-
-	system_instruction = frappe.db.get_single_value("Gemini Settings", "system_instruction") or ""
-
-	final_prompt_parts = []
-	if system_instruction:
-		final_prompt_parts.append(f"System Instruction: {system_instruction}")
-	if context:
-		final_prompt_parts.append(f"Context from ERPNext/Google:\n{context}")
-
-	# Add conversation history, avoiding duplication of the current prompt
-	if conversation_history:
-		for entry in conversation_history:
-			if entry.get("text") != prompt:
-				final_prompt_parts.append(f"{entry['role']}: {entry['text']}")
-
-	final_prompt_parts.append(f"User query: {clean_prompt}")
-	final_prompt_parts.append("\nBased on the user query and provided context, provide a helpful response.")
-
-	final_prompt = "\n".join(final_prompt_parts)
-	response_text = generate_text(final_prompt, model, uploaded_files, generation_config=generation_config)
-
-	conversation_history.append({"role": "user", "text": prompt})
-	conversation_history.append({"role": "gemini", "text": response_text})
-	new_conversation_id = save_conversation(conversation_id, prompt, conversation_history)
-
-	return {
-		"response": response_text,
-		"thoughts": context.strip(),
-		"conversation_id": new_conversation_id,
-		"clarification_needed": False,
-	}
 
 
 @log_activity
@@ -669,7 +489,52 @@ def _generate_final_response(
 def generate_chat_response(
 	prompt, model=None, conversation_id=None, selected_options=None, generation_config=None
 ):
-	"""Orchestrates chat interactions, including context fetching and clarification."""
+	"""
+	Orchestrates chat interactions using a tool-calling model.
+	"""
+	configure_gemini()
+	# The new implementation will use the tool-calling features of the `google-generativeai` library.
+	# It will pass the MCP tool definitions to the Gemini model, execute the function calls
+	# requested by the model, and return the final response.
+
+	# 1. Define the tool-calling model
+	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-pro"
+	# Pass the MCP tools to the model
+	tool_model = genai.GenerativeModel(model_name, tools=mcp.get_tools_for_gemini())
+
+	# 2. Start a chat session
+	chat = tool_model.start_chat()
+	# 3. Send the user's prompt
+	response = chat.send_message(prompt)
+
+	# 4. Handle function calls
+	while response.function_calls:
+		# Execute the function calls requested by the model
+		for func_call in response.function_calls:
+			# Get the tool definition from the MCP instance
+			tool = mcp.get_tool(func_call.name)
+			if not tool:
+				# If the tool is not found, return an error to the model
+				response = chat.send_message(
+					f"Tool {func_call.name} not found.", role="function", is_response=True
+				)
+				continue
+
+			# Execute the tool's function with the provided arguments
+			try:
+				result = tool.fn(**func_call.args)
+				# Send the result back to the model
+				response = chat.send_message(
+					{"function_response": {"name": func_call.name, "content": result}},
+					is_response=True,
+				)
+			except Exception as e:
+				# If an error occurs during tool execution, return an error to the model
+				response = chat.send_message(
+					f"Error executing tool {func_call.name}: {e}", role="function", is_response=True
+				)
+
+	# 5. Save the conversation
 	conversation_history = []
 	if conversation_id:
 		try:
@@ -679,166 +544,16 @@ def generate_chat_response(
 		except frappe.DoesNotExistError:
 			pass
 
-	full_context = ""
-	thoughts = ""
-	uploaded_files = []
+	conversation_history.append({"role": "user", "text": prompt})
+	conversation_history.append({"role": "gemini", "text": response.text})
+	new_conversation_id = save_conversation(conversation_id, prompt, conversation_history)
 
-	# Extract and process URLs from the prompt
-	if prompt:
-		urls = extract_urls(prompt)
-		if urls:
-			url_context = get_url_context(urls)
-			full_context += url_context
-			thoughts += f"Extracted and processed {len(urls)} URLs.\n"
-
-	if selected_options:
-		options = json.loads(selected_options)
-		creds = get_user_credentials() if is_google_integrated() else None
-		for option in options:
-			data = option.get("data", {})
-			if option.get("type") == "erpnext":
-				full_context += get_doc_context(data.get("doctype"), data.get("docname")) + "\n\n"
-			elif option.get("type") == "gdrive" and creds:
-				full_context += get_drive_file_context(creds, data.get("file_id")) + "\n\n"
-			elif option.get("type") == "gmail" and creds:
-				full_context += get_gmail_message_context(creds, data.get("message_id")) + "\n\n"
-
-		original_prompt = next(
-			(entry["text"] for entry in reversed(conversation_history) if entry["role"] == "user"), prompt
-		)
-		return _generate_final_response(
-			original_prompt,
-			full_context,
-			model,
-			conversation_id,
-			conversation_history,
-			uploaded_files,
-			generation_config=generation_config,
-		)
-
-	# Always use the natural language search logic.
-	# Clean the prompt to handle '@' references as simple text.
-	search_query = re.sub(r'@([a-zA-Z0-9\s.-]+)|@"([^"]+)"', r"\1\2", prompt).strip()
-	search_result = search_documents(search_query)
-
-	if search_result.get("clarification_needed"):
-		# Pass the clarification options to the user.
-		conversation_history.append({"role": "user", "text": prompt})
-		new_conversation_id = save_conversation(conversation_id, prompt, conversation_history)
-		search_result["conversation_id"] = new_conversation_id
-		# Also search Google Workspace if clarification is needed for ERPNext docs
-		creds = get_user_credentials() if is_google_integrated() else None
-		if creds:
-			# Re-use the clarification options from the search_result
-			clarification_options = search_result.get("options", [])
-			gdrive_keywords = ["drive", "file", "doc", "document", "sheet", "slide"]
-			gmail_keywords = ["email", "mail", "gmail"]
-
-			if any(kw in prompt.lower() for kw in gdrive_keywords):
-				files = search_drive_files(creds, search_query)
-				for f in files:
-					clarification_options.append(
-						{
-							"type": "gdrive",
-							"label": f"Google Drive: '{f['name']}'",
-							"data": {"file_id": f["id"]},
-						}
-					)
-
-			if any(kw in prompt.lower() for kw in gmail_keywords):
-				messages = search_gmail_messages(creds, search_query)
-				for m in messages:
-					clarification_options.append(
-						{
-							"type": "gmail",
-							"label": f"Gmail: '{m['subject']}'",
-							"data": {"message_id": m["id"]},
-						}
-					)
-
-			search_result["options"] = clarification_options
-
-		return search_result
-
-	full_context += search_result.get("context", "")
-	thoughts += search_result.get("thoughts", "")
-
-	creds = get_user_credentials() if is_google_integrated() else None
-	if creds:
-		gdrive_keywords = ["drive", "file", "doc", "document", "sheet", "slide"]
-		gmail_keywords = ["email", "mail", "gmail"]
-		if any(kw in prompt.lower() for kw in gdrive_keywords):
-			files = search_drive_files(creds, prompt)
-			if len(files) == 1:
-				full_context += get_drive_file_context(creds, files[0]["id"]) + "\n\n"
-			elif files:
-				for f in files:
-					clarification_options.append(
-						{
-							"type": "gdrive",
-							"label": f"Google Drive: '{f['name']}'",
-							"data": {"file_id": f["id"]},
-						}
-					)
-
-		if any(kw in prompt.lower() for kw in gmail_keywords):
-			search_query = prompt
-			# Try to find a contact name to refine the search. Case-insensitive search.
-			contact_name_match = re.search(r"(?:from|by|to)\s+([a-zA-Z\s]+)", prompt, re.IGNORECASE)
-			contact_name = contact_name_match.group(1).strip() if contact_name_match else None
-
-			if contact_name:
-				contacts = search_google_contacts(creds, contact_name)
-				if len(contacts) == 1:
-					person = contacts[0].get("person", {})
-					email_addresses = person.get("emailAddresses", [])
-					if email_addresses:
-						# If a single contact with an email is found, use it for the search.
-						search_query = email_addresses[0].get("value")
-						thoughts += f"Found a unique Google Contact for '{contact_name}'. Searching emails from '{search_query}'.\n"
-					else:
-						thoughts += f"Found contact '{contact_name}' but they have no email address. Using full prompt for search.\n"
-				elif len(contacts) > 1:
-					thoughts += f"Found multiple contacts for '{contact_name}'. Using full prompt for a broader search.\n"
-				else:
-					thoughts += (
-						f"No Google Contact found for '{contact_name}'. Using full prompt for search.\n"
-					)
-
-			messages = search_gmail_messages(creds, search_query)
-			if len(messages) == 1:
-				full_context += get_gmail_message_context(creds, messages[0]["id"]) + "\n\n"
-			elif messages:
-				for m in messages:
-					clarification_options.append(
-						{
-							"type": "gmail",
-							"label": f"Gmail: '{m['subject']}'",
-							"data": {"message_id": m["id"]},
-						}
-					)
-
-	if "clarification_options" in locals() and clarification_options:
-		conversation_history.append({"role": "user", "text": prompt})
-		save_conversation(conversation_id, prompt, conversation_history)
-		return {
-			"clarification_needed": True,
-			"options": clarification_options,
-			"response": "I found a few items that could match. Please select the correct one(s):",
-			"thoughts": thoughts,
-			"conversation_id": conversation_id,
-		}
-
-	thoughts += full_context
-	return _generate_final_response(
-		prompt,
-		full_context,
-		model,
-		conversation_id,
-		conversation_history,
-		uploaded_files,
-		generation_config=generation_config,
-	)
+	# 6. Return the final response
+	return {
+		"response": response.text,
+		"conversation_id": new_conversation_id,
+		"clarification_needed": False,
+	}
 
 
 def save_conversation(conversation_id, title, conversation):
