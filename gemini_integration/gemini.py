@@ -362,7 +362,11 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 		mentioned_services = ["erpnext"]  # Default to ERPNext if no service is mentioned
 
 	# 2. Get the tools for the mentioned services
-	tools = mcp.get_tools(services=mentioned_services)
+	tools = [
+		tool
+		for tool in mcp.tools
+		if getattr(tool, "service", None) in mentioned_services
+	]
 
 	# 3. Get user credentials if any Google services are mentioned
 	# This part can be improved to be more dynamic based on tool requirements
