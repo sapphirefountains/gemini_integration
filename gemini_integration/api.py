@@ -217,5 +217,7 @@ def get_available_services():
 	"""
 	from gemini_integration.mcp import mcp
 
-	services = sorted(list(set(tool.service for tool in mcp.tools if hasattr(tool, "service"))))
+	services = sorted(
+		list(set(tool.service for tool in mcp._tools.values() if hasattr(tool, "service")))
+	)
 	return services

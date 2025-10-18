@@ -364,7 +364,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	# 2. Get the tools for the mentioned services
 	tools = [
 		tool
-		for tool in mcp.tools
+		for tool in mcp._tools.values()
 		if getattr(tool, "service", None) in mentioned_services
 	]
 
