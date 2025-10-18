@@ -9,4 +9,4 @@ def handle_mcp():
 	"""
 	The entry point for MCP requests.
 	"""
-	import gemini_integration.utils  # noqa: F401
+	import gemini_integration.tools  # noqa: F401
