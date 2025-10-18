@@ -33,8 +33,12 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
         .clarification-container .list-group-item input { margin-right: 10px; }
         .clarification-submit-btn { margin-top: 10px; }
 
-        .chat-input-area { display: flex; align-items: center; gap: 8px; }
+        .chat-input-area { display: flex; align-items: center; gap: 8px; position: relative; }
         .chat-input-area textarea { flex-grow: 1; }
+        #autocomplete-container { position: absolute; bottom: 100%; left: 0; width: calc(100% - 70px); border: 1px solid #ccc; background-color: white; z-index: 1000; max-height: 150px; overflow-y: auto; }
+        #autocomplete-container .list-group-item { cursor: pointer; }
+        #autocomplete-container .list-group-item:hover { background-color: #f0f0f0; }
+
         .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
         .google-connect-btn { margin-left: auto; }
         .sidebar-toggle-btn { display: none; }
@@ -72,6 +76,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
                 <div class="chat-history"></div>
                 <div class="chat-input-area">
                     <textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
+                    <div id="autocomplete-container" class="list-group" style="display: none;"></div>
                     <button class="btn btn-primary send-btn">Send</button>
                 </div>
             </div>
@@ -88,6 +93,8 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	let conversations_list = $(page.body).find("#conversations-list");
 	let sidebar_toggle_btn = $(page.body).find(".sidebar-toggle-btn");
 	let gemini_chat_container = $(page.body).find(".gemini-chat-container");
+	let autocomplete_container = $(page.body).find("#autocomplete-container");
+	let available_services = [];
 	let conversation = [];
 
 	page.model_selector = frappe.ui.form.make_control({
@@ -286,6 +293,59 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		}
 	});
 
+	const load_available_services = () => {
+		frappe.call({
+			method: "gemini_integration.api.get_available_services",
+			callback: function (r) {
+				if (r.message) {
+					available_services = r.message;
+				}
+			},
+		});
+	};
+
+	const show_autocomplete = (query) => {
+		autocomplete_container.empty().hide();
+		const filtered_services = available_services.filter((service) =>
+			service.toLowerCase().includes(query.toLowerCase())
+		);
+
+		if (filtered_services.length > 0) {
+			filtered_services.forEach((service) => {
+				autocomplete_container.append(
+					`<a href="#" class="list-group-item list-group-item-action" data-service="${service}">@${service}</a>`
+				);
+			});
+			autocomplete_container.show();
+		}
+	};
+
+	chat_input.on("keyup", function (e) {
+		const text = $(this).val();
+		const cursor_pos = this.selectionStart;
+		const at_match = text.substring(0, cursor_pos).match(/@(\w*)$/);
+
+		if (at_match) {
+			show_autocomplete(at_match[1]);
+		} else {
+			autocomplete_container.hide();
+		}
+	});
+
+	autocomplete_container.on("click", ".list-group-item", function (e) {
+		e.preventDefault();
+		const service = $(this).data("service");
+		const text = chat_input.val();
+		const cursor_pos = chat_input[0].selectionStart;
+		const text_before = text.substring(0, cursor_pos);
+		const text_after = text.substring(cursor_pos);
+		const new_text = text_before.replace(/@(\w*)$/, `@${service} `) + text_after;
+
+		chat_input.val(new_text);
+		autocomplete_container.hide();
+		chat_input.focus();
+	});
+
 	const load_conversations = () => {
 		frappe.call({
 			method: "gemini_integration.api.get_conversations",
@@ -332,5 +392,6 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	});
 
 	load_conversations();
+	load_available_services();
 	add_to_history("gemini", "Hello! How can I help you today?");
 };

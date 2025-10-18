@@ -206,3 +206,16 @@ def get_conversation(conversation_id):
 	if doc.user != frappe.session.user:
 		frappe.throw("You are not authorized to view this conversation.")
 	return doc
+
+
+@frappe.whitelist()
+def get_available_services():
+	"""Retrieves a list of all available services that have tools.
+
+	Returns:
+	    list: A list of unique service names.
+	"""
+	from gemini_integration.mcp import mcp
+
+	services = mcp.get_services()
+	return services

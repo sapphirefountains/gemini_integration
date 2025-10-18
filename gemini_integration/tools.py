@@ -274,11 +274,11 @@ search_drive.service = "drive"
 @log_activity
 @handle_errors
 def search_calendar(credentials: Credentials, query: str) -> str:
-	"""Lists upcoming calendar events for the next 7 days.
+	"""Searches calendar events for the next 7 days.
 
 	Args:
 	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
-	    query (str): The search query (currently unused).
+	    query (str): The search query.
 
 	Returns:
 	    str: A formatted string of calendar events, or an error message.
@@ -300,6 +300,7 @@ def search_calendar(credentials: Credentials, query: str) -> str:
 					calendarId=calendar_id,
 					timeMin=time_min,
 					timeMax=time_max,
+					q=query,
 					maxResults=10,
 					singleEvents=True,
 					orderBy="startTime",
