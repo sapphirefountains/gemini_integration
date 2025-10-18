@@ -40,14 +40,13 @@ def log_activity(func):
 		log_level = get_log_level()
 		if log_level == "Debug":
 			frappe.log(
-				f"Calling function {func.__name__} with args: {args}, kwargs: {kwargs}",
-				"Gemini Integration Debug",
+				f"Gemini Integration Debug: Calling function {func.__name__} with args: {args}, kwargs: {kwargs}"
 			)
 
 		result = func(*args, **kwargs)
 
 		if log_level == "Debug":
-			frappe.log(f"Function {func.__name__} returned: {result}", "Gemini Integration Debug")
+			frappe.log(f"Gemini Integration Debug: Function {func.__name__} returned: {result}")
 
 		return result
 
