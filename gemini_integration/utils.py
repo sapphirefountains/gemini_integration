@@ -594,6 +594,6 @@ def search_google_contacts(credentials: Credentials, name: str) -> dict:
 
 	except HttpError as error:
 		frappe.log_error(
-			f"Google People API Error for query '{name}': {error.content}", "Gemini Contact Search Error"
+			f"Google People API Error for query '{name}': {str(error.content)[:100]}", "Gemini Contact Search Error"
 		)
 		return {"error": "An API error occurred during contact search."}
