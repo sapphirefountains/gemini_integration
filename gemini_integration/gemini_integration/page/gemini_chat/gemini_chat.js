@@ -73,6 +73,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
                 <div class="chat-history"></div>
                 <div class="chat-input-area">
                     <textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
+                    <div class="google-search-toggle">
+                        <input type="checkbox" id="google-search-checkbox" class="form-check-input">
+                        <label for="google-search-checkbox">Google Search</label>
+                    </div>
                     <button class="btn btn-primary send-btn">Send</button>
                 </div>
             </div>
@@ -83,6 +87,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	let chat_history = $(page.body).find(".chat-history");
 	let chat_input = $(page.body).find(".chat-input-area textarea");
 	let send_btn = $(page.body).find(".send-btn");
+	let google_search_checkbox = $(page.body).find("#google-search-checkbox");
 	let google_connect_btn = $(page.body).find(".google-connect-btn");
 	let help_btn = $(page.body).find(".help-btn");
 	let new_chat_btn = $(page.body).find("#new-chat-button");
@@ -129,6 +134,17 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 					.removeClass("btn-secondary")
 					.addClass("btn-success");
 		},
+	});
+
+	// Check if Google Search is enabled in settings and update the checkbox
+	frappe.db.get_single_value("Gemini Settings", "enable_google_search").then((is_enabled) => {
+		if (is_enabled) {
+			google_search_checkbox.prop("disabled", false);
+			google_search_checkbox.prop("checked", true);
+		} else {
+			google_search_checkbox.prop("disabled", true);
+			google_search_checkbox.prop("checked", false);
+		}
 	});
 
 	google_connect_btn.on("click", () => {
@@ -182,6 +198,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 				prompt: prompt,
 				model: page.model_selector.get_value(),
 				conversation_id: currentConversation,
+				use_google_search: google_search_checkbox.is(":checked"),
 			},
 			callback: function (r) {
 				loading.hide();

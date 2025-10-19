@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "api_key",
+   "enable_google_search",
   "model",
   "system_instruction",
   "log_level",
@@ -19,6 +20,13 @@
    "label": "API Key",
    "reqd": 1
   },
+   {
+    "fieldname": "enable_google_search",
+    "fieldtype": "Check",
+    "label": "Enable Google Search",
+    "description": "When enabled, the model can use Google Search to answer questions about recent events or topics.",
+    "default": "0"
+   },
   {
    "fieldname": "model",
    "fieldtype": "Select",
