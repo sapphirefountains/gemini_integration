@@ -377,38 +377,62 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 				"conversation_id": conversation_id,
 			}
 
-	# 3. Execute the prompt using the MCP server
-	from werkzeug.wrappers import Request, Response
-	import uuid
+	# 3. Set up the model with the available tools
+	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
+	# The MCP's tool registry is not public, so we access the private attribute.
+	# This is a known and accepted pattern in this project.
+	gemini_tools = list(mcp._tool_registry.values())
+	model_instance = genai.GenerativeModel(model_name, tools=gemini_tools)
+	chat = model_instance.start_chat()
 
-	request_data = {
-		"jsonrpc": "2.0",
-		"id": str(uuid.uuid4()),
-		"method": "completion/complete",
-		"params": {
-			"prompt": prompt,
-			**kwargs
-		}
-	}
+	# 4. Send the prompt and handle the response, including any tool calls
+	response = chat.send_message(prompt)
 
-	# The MCP object expects werkzeug request/response objects.
-	# We don't have a real HTTP request here, so we'll simulate it.
-	# The MCP's handle method will process this and return a response.
-	# We have to access internal methods, which is not ideal but necessary here.
-	response_obj = Response()
-	mcp._handle_request(request_data['id'], request_data, response_obj)
-	response = json.loads(response_obj.data)
-	response = response.get("result", {})
+	# Loop to handle multiple potential tool calls from the model
+	while response.candidates[0].content.parts[0].function_call.name:
+		function_call = response.candidates[0].content.parts[0].function_call
+		tool_name = function_call.name
+		tool_args = {key: value for key, value in function_call.args.items()}
 
+		# Add credentials to args if the tool requires them
+		if "credentials" in kwargs:
+			tool_args["credentials"] = kwargs["credentials"]
 
-	# 5. Save the conversation
+		# Execute the tool
+		try:
+			tool_function = mcp._tool_registry[tool_name]["fn"]
+			tool_result = tool_function(**tool_args)
+		except Exception as e:
+			frappe.log_error(f"Error executing tool '{tool_name}': {e!s}", "Gemini Integration")
+			tool_result = f"An error occurred: {e!s}"
+
+		# Send the tool's result back to the model
+		response = chat.send_message(
+			genai.types.Content(
+				parts=[
+					genai.types.Part(
+						function_response=genai.types.FunctionResponse(
+							name=tool_name, response={"result": tool_result}
+						)
+					)
+				]
+			)
+		)
+
+	# 5. Extract the final text response and thoughts
+	final_response_text = response.text
+	# The concept of "thoughts" from the old MCP implementation doesn't directly map.
+	# We will create a placeholder for now.
+	thoughts = "The model generated a response, potentially after using tools."
+
+	# 6. Save the conversation
 	conversation_history.append({"role": "user", "text": prompt})
-	conversation_history.append({"role": "gemini", "text": response["response"]})
+	conversation_history.append({"role": "gemini", "text": final_response_text})
 	conversation_id = save_conversation(conversation_id, prompt, conversation_history)
 
 	return {
-		"response": response["response"],
-		"thoughts": response["thoughts"],
+		"response": final_response_text,
+		"thoughts": thoughts,
 		"conversation_id": conversation_id,
 	}
 
