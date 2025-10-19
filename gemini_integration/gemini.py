@@ -105,7 +105,7 @@ import google.generativeai as genai
 import requests
 from frappe.utils import get_site_url, get_url_to_form
 from google.generativeai import files
-from google.generativeai.types import GoogleSearchRetrieval, Tool
+from google.generativeai import GoogleSearchRetrieval, Tool
 
 # Google API Imports
 from googleapiclient.errors import HttpError
