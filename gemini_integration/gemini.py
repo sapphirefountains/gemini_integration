@@ -394,7 +394,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 				"conversation_id": conversation_id,
 			}
 
-	# 3. Set up the model with the dynamically selected tools.
+	# 3. Set up the model with the dynamically selected tools and context.
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	# Add a system instruction to ground the model and prevent hallucinations.
@@ -406,45 +406,21 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 4. Clearly separate information that comes from ERPNext tools from your general knowledge. For example, say 'I found the following in ERPNext...' when presenting tool results.
 """
 
-	# Only add tool_config if there are tools to configure.
-	if tool_declarations:
-		tool_config = {"function_calling_config": {"mode": "AUTO"}}
-		model_instance = genai.GenerativeModel(
-			model_name,
-			tools=tool_declarations,
-			tool_config=tool_config,
-			system_instruction=system_instruction,
-		)
-	else:
-		model_instance = genai.GenerativeModel(model_name, system_instruction=system_instruction)
-
-	# Find the most recent tool context in the history, if any.
+	# Find the most recent tool context in the history and add it to the system prompt.
 	latest_context = None
 	for entry in reversed(conversation_history):
 		if entry.get("role") == "tool_context":
-			# We'll format this into a string to inject into the system prompt.
 			try:
-				# Check if the content is a string and try to load it as JSON
 				content = entry.get("content")
-				if isinstance(content, str):
-					context_data = json.loads(content)
-				else:
-					context_data = content # Assume it's already a dict/list
-
-				# We only care about the context if a specific document was found.
-				# This is indicated by the presence of a 'doc' key.
+				context_data = json.loads(content) if isinstance(content, str) else content
 				if isinstance(context_data, dict) and "doc" in context_data:
 					latest_context = json.dumps(context_data["doc"], indent=2)
-					break # Stop after finding the most recent relevant context
+					break
 			except (json.JSONDecodeError, TypeError):
-				# Ignore entries with malformed content.
 				continue
 
-
-	# If we found context, we dynamically add it to the system instruction.
 	if latest_context:
-		context_instruction = f"""
----
+		context_instruction = f"""---
 HERE IS THE CONTEXT FOR THE CURRENT CONVERSATION.
 A tool was previously run and returned the following data about a specific document.
 You MUST use this data to answer the user's follow-up questions about this document.
@@ -455,6 +431,18 @@ CONTEXT:
 ---
 """
 		system_instruction += context_instruction
+
+	# Now, initialize the model with the final, context-aware system instruction.
+	if tool_declarations:
+		tool_config = {"function_calling_config": {"mode": "AUTO"}}
+		model_instance = genai.GenerativeModel(
+			model_name,
+			tools=tool_declarations,
+			tool_config=tool_config,
+			system_instruction=system_instruction,
+		)
+	else:
+		model_instance = genai.GenerativeModel(model_name, system_instruction=system_instruction)
 
 
 	# The Gemini API expects a specific format for conversation history.
