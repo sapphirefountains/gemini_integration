@@ -1,5 +1,6 @@
 import base64
 import functools
+import json
 import logging
 import traceback
 from datetime import datetime, timedelta
@@ -495,19 +496,21 @@ find_best_match_for_doctype.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_google_contacts(name: str) -> dict:
+def search_google_contacts(name: str) -> str:
 	"""Searches Google Contacts for a person by name and returns the best match.
 
 	Args:
 	    name (str): The name of the person to search for.
 
 	Returns:
-	    dict: A dictionary containing the best match or a list of suggestions.
+	    str: A JSON string containing the best match or a list of suggestions.
 	"""
 	try:
 		credentials = get_user_credentials()
 		if not credentials:
-			return {"error": "Could not get user credentials. Please make sure you have authenticated with Google."}
+			return json.dumps(
+				{"error": "Could not get user credentials. Please make sure you have authenticated with Google."}
+			)
 		people_service = build("people", "v1", credentials=credentials)
 		gmail_service = build("gmail", "v1", credentials=credentials)
 
@@ -520,7 +523,7 @@ def search_google_contacts(name: str) -> dict:
 
 		people = results.get("results", [])
 		if not people:
-			return {"suggestions": []}
+			return json.dumps({"suggestions": []})
 
 		scored_contacts = []
 		for person_result in people:
@@ -562,15 +565,15 @@ def search_google_contacts(name: str) -> dict:
 		threshold = frappe.db.get_single_value("Gemini Settings", "contact_confidence_threshold") or 0.95
 
 		if sorted_contacts and sorted_contacts[0]["score"] >= threshold:
-			return {"best_match": sorted_contacts[0]}
+			return json.dumps({"best_match": sorted_contacts[0]})
 		else:
-			return {"suggestions": sorted_contacts}
+			return json.dumps({"suggestions": sorted_contacts})
 
 	except HttpError as error:
 		frappe.log_error(
 			f"Google People API Error for query '{name}': {str(error.content)[:100]}", "Gemini Contact Search Error"
 		)
-		return {"error": "An API error occurred during contact search."}
+		return json.dumps({"error": "An API error occurred during contact search."})
 
 search_google_contacts.service = "google"
 
