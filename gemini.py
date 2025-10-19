@@ -500,7 +500,7 @@ def generate_chat_response(
 	# 1. Define the tool-calling model
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-pro"
 	# Pass the MCP tools to the model
-	tool_model = genai.GenerativeModel(model_name, tools=mcp.get_tools_for_gemini())
+	tool_model = genai.GenerativeModel(model_name, tools=list(mcp._tool_registry.values()))
 
 	# 2. Start a chat session
 	chat = tool_model.start_chat()
@@ -512,7 +512,7 @@ def generate_chat_response(
 		# Execute the function calls requested by the model
 		for func_call in response.function_calls:
 			# Get the tool definition from the MCP instance
-			tool = mcp.get_tool(func_call.name)
+			tool = mcp._tool_registry.get(func_call.name)
 			if not tool:
 				# If the tool is not found, return an error to the model
 				response = chat.send_message(
