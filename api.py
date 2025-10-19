@@ -16,7 +16,17 @@ from gemini_integration.utils import handle_errors, log_activity
 @log_activity
 @handle_errors
 def generate(prompt, model=None, generation_config=None):
-	"""Generates text using the Gemini API."""
+	"""Generates text using the Gemini API.
+
+	Args:
+		prompt (str): The text prompt to send to the model.
+		model (str, optional): The name of the Gemini model to use. Defaults to None.
+		generation_config (dict or str, optional): Configuration for the generation
+			process. If a string is provided, it will be parsed as JSON. Defaults to None.
+
+	Returns:
+		The generated text from the Gemini API.
+	"""
 	if generation_config and isinstance(generation_config, str):
 		import json
 
@@ -28,7 +38,17 @@ def generate(prompt, model=None, generation_config=None):
 @log_activity
 @handle_errors
 def chat(prompt, model=None, conversation_id=None):
-	"""Handles chat interactions with the Gemini API."""
+	"""Handles chat interactions with the Gemini API.
+
+	Args:
+		prompt (str): The user's message.
+		model (str, optional): The name of the Gemini model to use. Defaults to None.
+		conversation_id (str, optional): The ID of an existing conversation to continue.
+			Defaults to None.
+
+	Returns:
+		The chat response from the Gemini API.
+	"""
 	return generate_chat_response(prompt, model, conversation_id)
 
 
@@ -36,7 +56,15 @@ def chat(prompt, model=None, conversation_id=None):
 @log_activity
 @handle_errors
 def get_project_tasks(project_id, template):
-	"""Generates project tasks based on a project ID and template."""
+	"""Generates project tasks based on a project ID and template.
+
+	Args:
+		project_id (str): The ID of the project.
+		template (str): The template to use for generating tasks.
+
+	Returns:
+		The generated project tasks.
+	"""
 	return generate_tasks(project_id, template)
 
 
@@ -44,7 +72,14 @@ def get_project_tasks(project_id, template):
 @log_activity
 @handle_errors
 def get_project_risks(project_id):
-	"""Analyzes and returns the risks for a given project."""
+	"""Analyzes and returns the risks for a given project.
+
+	Args:
+		project_id (str): The ID of the project.
+
+	Returns:
+		An analysis of the project's risks.
+	"""
 	return analyze_risks(project_id)
 
 
@@ -52,7 +87,11 @@ def get_project_risks(project_id):
 @log_activity
 @handle_errors
 def get_auth_url():
-	"""Retrieves the Google OAuth 2.0 authorization URL."""
+	"""Retrieves the Google OAuth 2.0 authorization URL.
+
+	Returns:
+		str: The authorization URL.
+	"""
 	return get_google_auth_url()
 
 
@@ -60,7 +99,13 @@ def get_auth_url():
 @log_activity
 @handle_errors
 def handle_google_callback(code=None, state=None, error=None):
-	"""Handles the callback from Google after user authorization."""
+	"""Handles the callback from Google after user authorization.
+
+	Args:
+		code (str, optional): The authorization code from Google. Defaults to None.
+		state (str, optional): The state parameter for CSRF protection. Defaults to None.
+		error (str, optional): Any error returned by Google. Defaults to None.
+	"""
 	process_google_callback(code, state, error)
 
 
@@ -68,13 +113,21 @@ def handle_google_callback(code=None, state=None, error=None):
 @log_activity
 @handle_errors
 def check_google_integration():
-	"""Checks if the current user has integrated their Google account."""
+	"""Checks if the current user has integrated their Google account.
+
+	Returns:
+		bool: True if the user has integrated their Google account, False otherwise.
+	"""
 	return is_google_integrated()
 
 
 @frappe.whitelist()
 def get_conversations():
-	"""Retrieves all Gemini conversations for the current user."""
+	"""Retrieves all Gemini conversations for the current user.
+
+	Returns:
+		list[dict]: A list of conversation documents, each containing the 'name' and 'title'.
+	"""
 	return frappe.get_all(
 		"Gemini Conversation",
 		filters={"user": frappe.session.user},
@@ -85,7 +138,17 @@ def get_conversations():
 
 @frappe.whitelist()
 def get_conversation(conversation_id):
-	"""Retrieves a specific Gemini conversation."""
+	"""Retrieves a specific Gemini conversation.
+
+	Args:
+		conversation_id (str): The ID of the conversation to retrieve.
+
+	Returns:
+		frappe.model.document.Document: The conversation document.
+
+	Raises:
+		frappe.PermissionError: If the user is not authorized to view the conversation.
+	"""
 	doc = frappe.get_doc("Gemini Conversation", conversation_id)
 	if doc.user != frappe.session.user:
 		frappe.throw("You are not authorized to view this conversation.")

@@ -33,7 +33,11 @@ from gemini_integration.utils import (
 @log_activity
 @handle_errors
 def configure_gemini():
-	"""Configures the Google Generative AI client with the API key from settings."""
+	"""Configures the Google Generative AI client with the API key from settings.
+
+	Returns:
+		bool: True if configuration is successful, False otherwise.
+	"""
 	settings = frappe.get_single("Gemini Settings")
 	api_key = settings.get_password("api_key")
 	if not api_key:
@@ -50,7 +54,23 @@ def configure_gemini():
 @log_activity
 @handle_errors
 def generate_text(prompt, model_name=None, uploaded_files=None, generation_config=None):
-	"""Generates text using a specified Gemini model."""
+	"""Generates text using a specified Gemini model.
+
+	Args:
+		prompt (str): The text prompt to send to the model.
+		model_name (str, optional): The name of the Gemini model to use. Defaults to the
+			one specified in settings or 'gemini-1.5-pro'.
+		uploaded_files (list, optional): A list of files to include in the prompt.
+			Defaults to None.
+		generation_config (dict, optional): Configuration for the generation process.
+			Defaults to None.
+
+	Returns:
+		str: The generated text from the model.
+
+	Raises:
+		frappe.Throw: If the Gemini integration is not configured.
+	"""
 	if not configure_gemini():
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
@@ -84,14 +104,28 @@ def generate_text(prompt, model_name=None, uploaded_files=None, generation_confi
 
 @log_activity
 def extract_urls(text):
-	"""Extracts all URLs from a given text."""
+	"""Extracts all URLs from a given text.
+
+	Args:
+		text (str): The text to search for URLs.
+
+	Returns:
+		list[str]: A list of URLs found in the text.
+	"""
 	url_pattern = r"https?://[^\s/$.?#].[^\s]*"
 	return re.findall(url_pattern, text)
 
 
 @handle_errors
 def get_html_content(url):
-	"""Fetches and extracts text content from a HTML URL."""
+	"""Fetches and extracts text content from a HTML URL.
+
+	Args:
+		url (str): The URL of the HTML page.
+
+	Returns:
+		str or None: The extracted text content, or None if an error occurs.
+	"""
 	try:
 		response = requests.get(url, timeout=10)
 		response.raise_for_status()
@@ -104,7 +138,14 @@ def get_html_content(url):
 
 @handle_errors
 def get_pdf_content(url):
-	"""Fetches and extracts text content from a PDF URL."""
+	"""Fetches and extracts text content from a PDF URL.
+
+	Args:
+		url (str): The URL of the PDF file.
+
+	Returns:
+		str or None: The extracted text content, or None if an error occurs.
+	"""
 	try:
 		response = requests.get(url, timeout=20)
 		response.raise_for_status()
@@ -124,7 +165,14 @@ def get_pdf_content(url):
 
 @log_activity
 def get_url_context(urls):
-	"""Fetches content from a list of URLs, respecting a blacklist, and returns a formatted context string."""
+	"""Fetches content from a list of URLs, respecting a blacklist, and returns a formatted context string.
+
+	Args:
+		urls (list[str]): A list of URLs to fetch content from.
+
+	Returns:
+		str: A formatted string containing the content from the URLs.
+	"""
 	full_context = ""
 	settings = frappe.get_single("Gemini Settings")
 	blacklist_str = settings.get("url_blacklist", "")
@@ -169,7 +217,14 @@ def get_url_context(urls):
 @log_activity
 @handle_errors
 def get_google_settings():
-	"""Retrieves Google settings from Social Login Keys."""
+	"""Retrieves Google settings from Social Login Keys.
+
+	Returns:
+		frappe.model.document.Document: The 'Social Login Key' document for Google.
+
+	Raises:
+		frappe.Throw: If Google Login is not enabled.
+	"""
 	settings = frappe.get_doc("Social Login Key", "Google")
 	if not settings or not settings.enable_social_login:
 		frappe.throw("Google Login is not enabled in Social Login Keys.")
@@ -179,7 +234,11 @@ def get_google_settings():
 @log_activity
 @handle_errors
 def get_google_flow():
-	"""Builds the Google OAuth 2.0 Flow object for authentication."""
+	"""Builds the Google OAuth 2.0 Flow object for authentication.
+
+	Returns:
+		google_auth_oauthlib.flow.Flow: The configured Flow object.
+	"""
 	settings = get_google_settings()
 	redirect_uri = (
 		get_site_url(frappe.local.site) + "/api/method/gemini_integration.api.handle_google_callback"
@@ -206,7 +265,11 @@ def get_google_flow():
 @log_activity
 @handle_errors
 def get_google_auth_url():
-	"""Generates the authorization URL for the user to grant consent."""
+	"""Generates the authorization URL for the user to grant consent.
+
+	Returns:
+		str: The Google authorization URL.
+	"""
 	flow = get_google_flow()
 	authorization_url, state = flow.authorization_url(access_type="offline", prompt="consent")
 	frappe.cache().set_value(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
@@ -216,7 +279,13 @@ def get_google_auth_url():
 @log_activity
 @handle_errors
 def process_google_callback(code, state, error):
-	"""Handles the OAuth callback from Google, exchanges the code for tokens, and stores them."""
+	"""Handles the OAuth callback from Google, exchanges the code for tokens, and stores them.
+
+	Args:
+		code (str): The authorization code from Google.
+		state (str): The state parameter for CSRF protection.
+		error (str): Any error returned by Google.
+	"""
 	if error:
 		frappe.log_error(f"Google OAuth Error: {error}", "Gemini Integration")
 		frappe.respond_as_web_page(
@@ -271,14 +340,23 @@ def process_google_callback(code, state, error):
 @log_activity
 @handle_errors
 def is_google_integrated():
-	"""Checks if a valid token exists for the current user."""
+	"""Checks if a valid token exists for the current user.
+
+	Returns:
+		bool: True if a token exists, False otherwise.
+	"""
 	return frappe.db.exists("Google User Token", {"user": frappe.session.user})
 
 
 @log_activity
 @handle_errors
 def get_user_credentials():
-	"""Retrieves stored credentials for the current user."""
+	"""Retrieves stored credentials for the current user.
+
+	Returns:
+		google.oauth2.credentials.Credentials or None: The user's credentials,
+		or None if not found or an error occurs.
+	"""
 	if not is_google_integrated():
 		return None
 	try:
@@ -303,7 +381,14 @@ def get_user_credentials():
 
 
 def _uppercase_schema_values(obj):
-	"""Recursively converts all JSON schema 'type' values to uppercase."""
+	"""Recursively converts all JSON schema 'type' values to uppercase.
+
+	Args:
+		obj (dict or list): The JSON schema object or a part of it.
+
+	Returns:
+		dict or list: The schema with 'type' values uppercased.
+	"""
 	if isinstance(obj, dict):
 		# Handle the case where 'type' is a key
 		if "type" in obj and isinstance(obj["type"], str):
@@ -318,9 +403,18 @@ def _uppercase_schema_values(obj):
 
 
 def _sanitize_tools(mcp_instance):
-	"""
-	Sanitizes tool definitions from the MCP registry to be compatible with the
-	Google Generative AI SDK.
+	"""Sanitizes tool definitions from the MCP registry to be compatible with the Google Generative AI SDK.
+
+	This involves:
+	1. Whitelisting only the 'name', 'description', and 'parameters' keys.
+	2. Ensuring the parameter schema has a top-level 'type: object'.
+	3. Recursively converting all schema 'type' values to uppercase.
+
+	Args:
+		mcp_instance (gemini_integration.mcp.MCP): The MCP instance containing the tool registry.
+
+	Returns:
+		list[dict]: A list of sanitized tool definitions ready for the Google SDK.
 	"""
 	sanitized_tools = []
 	if not hasattr(mcp_instance, "_tool_registry"):
@@ -359,9 +453,28 @@ def _sanitize_tools(mcp_instance):
 def generate_chat_response(
 	prompt, model=None, conversation_id=None, selected_options=None, generation_config=None
 ):
-	"""
-	Orchestrates chat interactions, including URL fetching, tool calling,
-	and conversation management.
+	"""Orchestrates chat interactions, including URL fetching, tool calling, and conversation management.
+
+	This is the main entry point for handling user chat requests. It performs the
+	following steps:
+	1. Configures the Gemini client.
+	2. Loads existing conversation history.
+	3. Fetches and injects context from any URLs in the prompt.
+	4. Configures the model with available tools and system instructions.
+	5. Initializes the chat and enters a loop to handle tool calls.
+	6. Executes tool calls and sends the results back to the model.
+	7. Saves the updated conversation history.
+	8. Returns the final response to the user.
+
+	Args:
+		prompt (str): The user's chat message.
+		model (str, optional): The Gemini model to use. Defaults to settings.
+		conversation_id (str, optional): The ID of the conversation to continue.
+		selected_options (dict, optional): Not currently used.
+		generation_config (dict, optional): Configuration for the generation process.
+
+	Returns:
+		dict: A dictionary containing the response text and conversation ID.
 	"""
 	# --- 1. Initial Setup and Configuration ---
 	if not configure_gemini():
@@ -527,7 +640,17 @@ def generate_chat_response(
 
 
 def save_conversation(conversation_id, title, conversation):
-	"""Saves or updates a conversation in the database."""
+	"""Saves or updates a conversation in the database.
+
+	Args:
+		conversation_id (str or None): The ID of the conversation to update, or None
+			to create a new one.
+		title (str): The title for a new conversation.
+		conversation (list[dict]): The full conversation history to save.
+
+	Returns:
+		str: The name of the saved conversation document.
+	"""
 	if not conversation_id:
 		doc = frappe.new_doc("Gemini Conversation")
 		doc.title = title[:140]
@@ -545,7 +668,15 @@ def save_conversation(conversation_id, title, conversation):
 @log_activity
 @handle_errors
 def generate_tasks(project_id, template):
-	"""Generates a list of tasks for a project using Gemini."""
+	"""Generates a list of tasks for a project using Gemini.
+
+	Args:
+		project_id (str): The ID of the project to generate tasks for.
+		template (str): The template to use for task generation.
+
+	Returns:
+		dict or list: A list of task objects or an error dictionary.
+	"""
 	if not frappe.db.exists("Project", project_id):
 		return {"error": "Project not found."}
 	project = frappe.get_doc("Project", project_id)
@@ -560,7 +691,14 @@ def generate_tasks(project_id, template):
 @log_activity
 @handle_errors
 def analyze_risks(project_id):
-	"""Analyzes a project for potential risks using Gemini."""
+	"""Analyzes a project for potential risks using Gemini.
+
+	Args:
+		project_id (str): The ID of the project to analyze.
+
+	Returns:
+		dict or list: A list of risk objects or an error dictionary.
+	"""
 	if not frappe.db.exists("Project", project_id):
 		return {"error": "Project not found."}
 	project = frappe.get_doc("Project", project_id)
