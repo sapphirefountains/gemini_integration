@@ -20,6 +20,53 @@ from gemini_integration.mcp import mcp
 from gemini_integration.utils import get_user_credentials, handle_errors, log_activity
 
 
+def _get_doctype_fields(doctype_name: str) -> list[str]:
+	"""
+	Retrieves a list of fields for a given DocType, filtered by user permissions
+	and compatibility for AI context.
+	"""
+	try:
+		meta = frappe.get_meta(doctype_name)
+		fields_to_fetch = ["name"]  # 'name' is always essential
+
+		# Define field types that are not useful for the AI context
+		excluded_field_types = {
+			"HTML", "Image", "Attach", "Attach Image", "Code", "JSON",
+			"Text Editor", "Password", "Button", "Section Break", "Column Break", "Tab Break"
+		}
+
+		for df in meta.fields:
+			# Check 1: User has at least read permission for the field
+			if not frappe.has_permission(doctype_name, "read", fieldname=df.fieldname):
+				continue
+
+			# Check 2: Field is not hidden
+			if df.hidden:
+				continue
+
+			# Check 3: Field type is not in the exclusion list
+			if df.fieldtype in excluded_field_types:
+				continue
+
+			# Check 4: Field exists as a database column
+			if not frappe.db.has_column(doctype_name, df.fieldname):
+				continue
+
+			# Check 5: Field is not already in our list
+			if df.fieldname not in fields_to_fetch:
+				fields_to_fetch.append(df.fieldname)
+
+		return fields_to_fetch
+
+	except Exception:
+		frappe.log_error(
+			f"Error dynamically fetching fields for DocType '{doctype_name}'",
+			frappe.get_traceback()
+		)
+		# Fallback to a minimal, safe list of fields that does not depend on the meta object
+		return ["name", "modified"]
+
+
 @mcp.tool()
 @log_activity
 @handle_errors
@@ -38,10 +85,13 @@ def get_doc_context(doctype: str, docname: str) -> str:
 		doc_dict = doc.as_dict()
 		context = f"Context for {doctype} '{docname}':\n"
 		# Loop through the document dictionary and format the data for readability.
-		# Child tables (lists) are excluded for brevity.
 		for field, value in doc_dict.items():
-			if value and not isinstance(value, list):
-				context += f"- {field}: {value}\n"
+			if value:
+				if isinstance(value, list):
+					# This is likely a child table. Mention its existence but not its content.
+					context += f"- {field}: (Contains a list of {len(value)} items)\n"
+				else:
+					context += f"- {field}: {value}\n"
 
 		doc_url = get_url_to_form(doctype, docname)
 		context += f"\nLink: {doc_url}"
@@ -105,36 +155,16 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 				# We can silently ignore it and continue.
 				continue
 
+			fields_to_fetch = _get_doctype_fields(dt)
 			title_field = meta.get_title_field()
 			search_fields = meta.get_search_fields()
+
 			field_weights = {"name": 3.0}
-			if title_field:
+			if title_field and title_field in fields_to_fetch:
 				field_weights[title_field] = 3.0
 			for f in search_fields:
-				if f not in field_weights:
+				if f not in field_weights and f in fields_to_fetch:
 					field_weights[f] = 1.5
-
-			fields_to_fetch = list(field_weights.keys())
-			if dt == "Project":
-				project_fields = [
-					"project_name", "project_type", "status", "is_active", "priority",
-					"department", "company", "customer", "project_template", "opportunity",
-					"lead", "sales_order", "project_manager", "expected_start_date",
-					"expected_end_date", "actual_start_date", "actual_end_date",
-					"total_costing_amount", "total_billed_amount", "total_purchase_cost",
-					"total_expense_claim"
-				]
-				for field in project_fields:
-					if frappe.db.has_column(dt, field) and field not in fields_to_fetch:
-						fields_to_fetch.append(field)
-
-			for df in meta.fields:
-				if (
-					df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]
-					and df.fieldname not in fields_to_fetch
-					and frappe.db.has_column(dt, df.fieldname)
-				):
-					fields_to_fetch.append(df.fieldname)
 
 			all_docs = frappe.get_all(dt, fields=fields_to_fetch)
 
@@ -186,8 +216,11 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 			doc_dict = doc.as_dict()
 			context = f"Found a confident match for '{query}': {top_doc_info['label']} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
 			for field, value in doc_dict.items():
-				if value and not isinstance(value, list):
-					context += f"- {field}: {value}\n"
+				if value:
+					if isinstance(value, list):
+						context += f"- {field}: (Contains a list of {len(value)} items)\n"
+					else:
+						context += f"- {field}: {value}\n"
 			doc_url = get_url_to_form(top_doc_info["doctype"], top_doc_info["name"])
 			context += f"\nLink: {doc_url}"
 			return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
