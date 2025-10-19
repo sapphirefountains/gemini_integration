@@ -116,6 +116,7 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 				if (
 					df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]
 					and df.fieldname not in fields_to_fetch
+					and frappe.db.has_column(dt, df.fieldname)
 				):
 					fields_to_fetch.append(df.fieldname)
 
