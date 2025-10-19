@@ -4,6 +4,102 @@ import json
 import re
 from datetime import datetime, timedelta
 
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
+import base64
+import copy
+import json
+import re
+from datetime import datetime, timedelta
+
 import frappe
 import google.generativeai as genai
 import requests
@@ -277,7 +373,8 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 		tool_declarations.append(declaration)
 
-	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
+	tool_config = {"function_calling_config": {"mode": "AUTO"}}
+	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations, tool_config=tool_config)
 
 	# The Gemini API expects a specific format for conversation history.
 	# We need to transform our stored history to match this format.
