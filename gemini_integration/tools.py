@@ -155,7 +155,7 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 				if frappe.db.exists(dt, query):
 					# If found, retrieve the full document and return it as a confident match.
 					doc = frappe.get_doc(dt, query)
-					doc_dict = doc.as_dict()
+					doc_dict = json.loads(frappe.as_json(doc))
 					meta = frappe.get_meta(dt)
 					title_field = meta.get_title_field()
 					label = (title_field and doc.get(title_field)) or doc.name
@@ -260,7 +260,7 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 		):
 			top_doc_info = sorted_docs[0]
 			doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
-			doc_dict = doc.as_dict()
+			doc_dict = json.loads(frappe.as_json(doc))
 			context = f"Found a confident match for '{query}': {top_doc_info['label']} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
 			for field, value in doc_dict.items():
 				if value:
