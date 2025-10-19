@@ -439,6 +439,12 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 			# If no function call is found, this is the final response.
 			break
 
+		# Log the raw function call from the model for debugging
+		frappe.log_error(
+			message=str(function_call),
+			title="Gemini Raw Function Call",
+		)
+
 		tool_name = function_call.name
 		tool_args = {key: value for key, value in function_call.args.items()}
 
@@ -461,16 +467,20 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 		)
 
 		# Send the tool's result back to the model
-		response = chat.send_message(
-			[
-				{
-					"function_response": {
-						"name": tool_name,
-						"response": {"contents": tool_result},
-					}
-				}
-			]
+		function_response_payload = {
+			"function_response": {
+				"name": tool_name,
+				"response": {"contents": tool_result},
+			}
+		}
+
+		# Log the response being sent back to the model for debugging
+		frappe.log_error(
+			message=json.dumps(function_response_payload, indent=2, default=str),
+			title="Gemini Function Response to Model",
 		)
+
+		response = chat.send_message([function_response_payload])
 
 	# 5. Extract the final text response and thoughts, handling potential errors
 	try:
