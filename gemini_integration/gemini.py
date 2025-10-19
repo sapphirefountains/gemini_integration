@@ -373,8 +373,14 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 	# 3. Set up the model with the dynamically selected tools.
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
-	tool_config = {"function_calling_config": {"mode": "AUTO"}}
-	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations, tool_config=tool_config)
+	# Only add tool_config if there are tools to configure.
+	if tool_declarations:
+		tool_config = {"function_calling_config": {"mode": "AUTO"}}
+		model_instance = genai.GenerativeModel(
+			model_name, tools=tool_declarations, tool_config=tool_config
+		)
+	else:
+		model_instance = genai.GenerativeModel(model_name)
 
 	# The Gemini API expects a specific format for conversation history.
 	# We need to transform our stored history to match this format.
