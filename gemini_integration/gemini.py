@@ -104,8 +104,6 @@ import frappe
 import google.generativeai as genai
 import requests
 from frappe.utils import get_site_url, get_url_to_form
-from google.generativeai import files
-from google.generativeai import GoogleSearchRetrieval, Tool
 
 # Google API Imports
 from googleapiclient.errors import HttpError
@@ -278,13 +276,15 @@ def _uppercase_schema_types(schema):
 
 @log_activity
 @handle_errors
-def generate_chat_response(prompt, model=None, conversation_id=None):
+def generate_chat_response(prompt, model=None, conversation_id=None, use_google_search=False):
 	"""Handles chat interactions by routing them to the correct MCP tools.
 
 	Args:
 	    prompt (str): The user's chat prompt.
 	    model (str, optional): The model to use for the chat. Defaults to None.
 	    conversation_id (str, optional): The ID of the existing conversation. Defaults to None.
+	    use_google_search (bool, optional): Whether to enable Google Search for this query.
+	        Defaults to False.
 
 	Returns:
 	    dict: A dictionary containing the response, thoughts, and conversation ID.
@@ -374,9 +374,9 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 		tool_declarations.append(declaration)
 
-	# Add the Google Search tool to the list of available tools.
-	# This allows the model to ground its responses in up-to-date, real-world info.
-	tool_declarations.append(Tool(google_search_retrieval=GoogleSearchRetrieval()))
+	# Add the Google Search tool if it's enabled by both the admin and the user.
+	if settings.enable_google_search and use_google_search:
+		tool_declarations.append({"google_search_retrieval": {}})
 
 	tool_config = {"function_calling_config": {"mode": "AUTO"}}
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations, tool_config=tool_config)
