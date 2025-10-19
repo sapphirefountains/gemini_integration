@@ -219,11 +219,25 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	tool_declarations = []
 	for tool in mcp._tool_registry.values():
 		# Create a sanitized declaration with only the allowed keys.
+		input_schema = tool.get("input_schema")
+
+		# The Google API requires the top-level schema to have `type: object`.
+		# `frappe-mcp` does not include this, so we must add it.
+		if input_schema and "properties" in input_schema:
+			parameters = {
+				"type": "object",
+				"properties": input_schema.get("properties", {}),
+				"required": input_schema.get("required", []),
+			}
+		else:
+			parameters = None
+
 		declaration = {
 			"name": tool.get("name"),
 			"description": tool.get("description"),
-			"parameters": tool.get("input_schema"),  # mcp uses 'input_schema'
+			"parameters": parameters,
 		}
+
 		# Remove keys with None values as they are optional.
 		declaration = {k: v for k, v in declaration.items() if v is not None}
 
