@@ -273,6 +273,10 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 		tool_declarations.append(declaration)
 
+	# --- Debugging ---
+	frappe.log_error(f"Gemini Tools: {json.dumps(tool_declarations, indent=2)}", "Gemini Debug")
+	# --- End Debugging ---
+
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
 	chat = model_instance.start_chat()
 
