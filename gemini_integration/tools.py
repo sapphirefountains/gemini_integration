@@ -14,9 +14,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from thefuzz import fuzz, process
 
-from gemini_integration.gemini import get_user_credentials
 from gemini_integration.mcp import mcp
-from gemini_integration.utils import handle_errors, log_activity
+from gemini_integration.utils import get_user_credentials, handle_errors, log_activity
 
 
 @mcp.tool()
