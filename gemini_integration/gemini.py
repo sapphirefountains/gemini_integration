@@ -384,7 +384,10 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	# The Gemini API expects a list of tool *declarations*, without the 'fn' key.
 	tool_declarations = []
 	for tool in mcp._tool_registry.values():
-		tool_declarations.append({k: v for k, v in tool.items() if k != 'fn'})
+		declaration = {k: v for k, v in tool.items() if k != "fn"}
+		if "input_schema" in declaration:
+			declaration["parameters"] = declaration.pop("input_schema")
+		tool_declarations.append(declaration)
 
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
 	chat = model_instance.start_chat()
