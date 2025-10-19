@@ -162,6 +162,20 @@ def get_erpnext_file_content(file_url):
 		return None
 
 
+def _uppercase_schema_types(schema):
+	"""Recursively converts all 'type' values in a JSON schema to uppercase."""
+	if isinstance(schema, dict):
+		for key, value in schema.items():
+			if key == "type" and isinstance(value, str):
+				schema[key] = value.upper()
+			else:
+				_uppercase_schema_types(value)
+	elif isinstance(schema, list):
+		for item in schema:
+			_uppercase_schema_types(item)
+	return schema
+
+
 # --- MAIN CHAT FUNCTIONALITY ---
 
 
@@ -241,9 +255,11 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 		# Remove keys with None values as they are optional.
 		declaration = {k: v for k, v in declaration.items() if v is not None}
 
+		if "parameters" in declaration:
+			declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
+
 		tool_declarations.append(declaration)
 
-	frappe.log_error(json.dumps(tool_declarations, indent=2), "GEMINI TOOL DEBUG")
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
 	chat = model_instance.start_chat()
 
