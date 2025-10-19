@@ -161,7 +161,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	});
 
-	sidebar_toggle_btn.on("click", () => gemini_chat_container.toggleClass("sidebar-open"));
+	sidebar_toggle_btn.on("click", (e) => {
+		e.stopPropagation();
+		gemini_chat_container.toggleClass("sidebar-open");
+	});
 	close_sidebar_btn.on("click", () => gemini_chat_container.removeClass("sidebar-open"));
 	gemini_chat_wrapper.on("click", () => gemini_chat_container.removeClass("sidebar-open"));
 
