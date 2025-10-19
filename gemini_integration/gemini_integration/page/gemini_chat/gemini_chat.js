@@ -187,6 +187,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	});
 
+	/**
+	 * Sends a message to the Gemini API and displays the response.
+	 * @param {string} [prompt] - The message to send. If not provided, the value from the chat input is used.
+	 */
 	const send_message = (prompt) => {
 		if (!prompt) {
 			prompt = chat_input.val().trim();
@@ -254,6 +258,11 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	};
 
+	/**
+	 * Renders a list of clarification options for the user to choose from.
+	 * @param {string} intro_text - The introductory text to display before the options.
+	 * @param {Array<Object>} suggestions - A list of suggestion objects.
+	 */
 	const render_clarification_options = (intro_text, suggestions) => {
 		let options_html = `<div class="clarification-container">
                                 <p>${intro_text}</p>
@@ -274,6 +283,11 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		chat_history.scrollTop(chat_history[0].scrollHeight);
 	};
 
+	/**
+	 * Adds a message to the chat history.
+	 * @param {string} role - The role of the message sender ('user', 'gemini', or 'thoughts').
+	 * @param {string} text - The content of the message.
+	 */
 	const add_to_history = (role, text) => {
 		let bubble;
 		if (role === "thoughts") {
@@ -314,6 +328,9 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		}
 	});
 
+	/**
+	 * Loads the list of conversations from the server and displays them in the sidebar.
+	 */
 	const load_conversations = () => {
 		frappe.call({
 			method: "gemini_integration.api.get_conversations",
@@ -332,6 +349,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	};
 
+	/**
+	 * Loads a specific conversation from the server and displays it in the chat history.
+	 * @param {string} conversation_id - The ID of the conversation to load.
+	 */
 	const load_conversation = (conversation_id) => {
 		frappe.call({
 			method: "gemini_integration.api.get_conversation",
@@ -366,6 +387,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 
 	load_conversations();
 
+	/**
+	 * Handles the initial loading of the chat page, either loading a specific conversation
+	 * from the URL or starting a new one.
+	 */
 	const handle_initial_load = () => {
 		const path = window.location.pathname;
 		const match = path.match(/^\/app\/gemini-chat\/(CON-\d{5,})$/);

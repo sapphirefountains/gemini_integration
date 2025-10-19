@@ -2,6 +2,7 @@ import frappe
 
 
 def execute():
+	"""Creates the Gemini Search Feedback DocType."""
 	frappe.get_doc(
 		{
 			"doctype": "DocType",

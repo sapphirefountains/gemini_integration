@@ -19,7 +19,7 @@ This app integrates Google's Gemini AI and Google Workspace (Gmail, Drive, Calen
     *   Automatically generate a list of tasks for a project based on its details.
     *   Analyze a project for potential risks (e.g., budget, timeline, scope creep).
 
-## 3. How It Works
+## 3. Architecture
 
 The integration uses a combination of techniques to understand your queries and fetch the right information:
 
@@ -29,9 +29,7 @@ The integration uses a combination of techniques to understand your queries and 
 4.  **Context Assembly:** All the retrieved data from ERPNext and Google Workspace is compiled into a single context block.
 5.  **AI Processing:** This context, along with your original prompt and a system instruction, is sent to the Google Gemini API to generate a helpful, human-readable response.
 
-## 4. Installation and Setup
-
-#### Step 1: Install the App
+## 4. Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:
 
@@ -41,7 +39,7 @@ bench get-app https://github.com/Sapphire-Fountains/gemini-integration.git --bra
 bench install-app gemini_integration
 ```
 
-#### Step 2: Configure Google Cloud Platform
+## 5. Configuration
 
 To use the Google Workspace integration, you need to set up a project in the Google Cloud Platform (GCP) and enable the necessary APIs.
 
@@ -62,20 +60,20 @@ To use the Google Workspace integration, you need to set up a project in the Goo
     *   Add your site's callback URL to the "Authorized redirect URIs" list:
         `https://<your-frappe-site>/api/method/gemini_integration.api.handle_google_callback`
     *   Copy the **Client ID** and **Client Secret**.
+5.  **Configure the App in ERPNext:**
+    *   **Gemini Settings:**
+        *   Go to the "Gemini Settings" page in your ERPNext Desk.
+        *   Enter the **API Key** for the Google Gemini AI service. You can get this from [Google AI Studio](https://aistudio.google.com/app/apikey).
+    *   **Social Login Keys (Google):**
+        *   Go to the "Social Login Keys" page and open the "Google" document.
+        *   Check the "Enable Social Login" box.
+        *   Paste the **Client ID** and **Client Secret** you copied from GCP.
 
-#### Step 3: Configure the App in ERPNext
-
-1.  **Gemini Settings:**
-    *   Go to the "Gemini Settings" page in your ERPNext Desk.
-    *   Enter the **API Key** for the Google Gemini AI service. You can get this from [Google AI Studio](https://aistudio.google.com/app/apikey).
-2.  **Social Login Keys (Google):**
-    *   Go to the "Social Login Keys" page and open the "Google" document.
-    *   Check the "Enable Social Login" box.
-    *   Paste the **Client ID** and **Client Secret** you copied from GCP.
-
-## 5. Usage
+## 6. Running the Application
 
 Once installed and configured, you can access the chat interface from the **Gemini Chat** page in your Desk.
+
+## 7. Usage
 
 #### 1. Interacting with ERPNext Data
 
@@ -100,7 +98,7 @@ The real power comes from combining these references in a single, natural langua
 **Example:**
 `Draft a follow-up email to the contact in @CUST-00234 regarding the issues mentioned in @gmail/a1b2c3d4e5f6. Use the service details from @SC-00105 as a reference.`
 
-## 6. Contributing
+## 8. Contributing
 
 This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
 
@@ -116,6 +114,6 @@ Pre-commit is configured to use the following tools for checking and formatting 
 - prettier
 - pyupgrade
 
-## 7. License
+## 9. License
 
 This project is licensed under the **MIT License**. See the `license.txt` file for details.
