@@ -2,7 +2,10 @@ import functools
 import traceback
 
 import frappe
+from frappe.utils import get_site_url
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
 
 
 def get_log_level():
@@ -132,3 +135,118 @@ def get_user_credentials():
 	except Exception as e:
 		frappe.log_error(f"Could not get user credentials: {e}", "Gemini Integration")
 		return None
+
+
+@log_activity
+@handle_errors
+def get_google_flow():
+	"""Builds the Google OAuth 2.0 Flow object for authentication.
+
+	Returns:
+	    google_auth_oauthlib.flow.Flow: The configured Google OAuth 2.0 Flow object.
+	"""
+	settings = get_google_settings()
+	redirect_uri = (
+		get_site_url(frappe.local.site) + "/api/method/gemini_integration.api.handle_google_callback"
+	)
+	client_secrets = {
+		"web": {
+			"client_id": settings.client_id,
+			"client_secret": settings.get_password("client_secret"),
+			"auth_uri": "https://accounts.google.com/o/oauth2/auth",
+			"token_uri": "https://oauth2.googleapis.com/token",
+		}
+	}
+	# Scopes define the level of access to the user's Google data.
+	scopes = [
+		"https://www.googleapis.com/auth/userinfo.email",
+		"openid",
+		"https://www.googleapis.com/auth/gmail.modify",
+		"https://www.googleapis.com/auth/drive",
+		"https://www.googleapis.com/auth/calendar",
+		"https://www.googleapis.com/auth/contacts.readonly",
+	]
+	return Flow.from_client_config(client_secrets, scopes=scopes, redirect_uri=redirect_uri)
+
+
+@log_activity
+@handle_errors
+def get_google_auth_url():
+	"""Generates the authorization URL for the user to grant consent.
+
+	Returns:
+	    str: The Google authorization URL.
+	"""
+	flow = get_google_flow()
+	authorization_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+	# Store the state in cache to prevent CSRF attacks.
+	frappe.cache().set_value(f"google_oauth_state_{frappe.session.user}", state, expires_in_sec=600)
+	return authorization_url
+
+
+@log_activity
+@handle_errors
+def process_google_callback(code, state, error):
+	"""Handles the OAuth callback from Google, exchanges the code for tokens, and stores them.
+
+	Args:
+	    code (str): The authorization code received from Google.
+	    state (str): The state parameter for CSRF protection.
+	    error (str): Any error returned by Google.
+	"""
+	if error:
+		frappe.log_error(f"Google OAuth Error: {error}", "Gemini Integration")
+		frappe.respond_as_web_page(
+			"Google Authentication Failed", f"An error occurred: {error}", http_status_code=401
+		)
+		return
+
+	cached_state = frappe.cache().get_value(f"google_oauth_state_{frappe.session.user}")
+	if not cached_state or cached_state != state:
+		frappe.log_error("Google OAuth State Mismatch", "Gemini Integration")
+		frappe.respond_as_web_page(
+			"Authentication Failed", "State mismatch. Please try again.", http_status_code=400
+		)
+		return
+
+	try:
+		flow = get_google_flow()
+		flow.fetch_token(code=code)
+		creds = flow.credentials
+
+		# Get user's email to store alongside the token for reference.
+		userinfo_service = build("oauth2", "v2", credentials=creds)
+		user_info = userinfo_service.userinfo().get().execute()
+		google_email = user_info.get("email")
+
+		# Create or update the Google User Token document for the current user.
+		if frappe.db.exists("Google User Token", {"user": frappe.session.user}):
+			token_doc = frappe.get_doc("Google User Token", {"user": frappe.session.user})
+		else:
+			token_doc = frappe.new_doc("Google User Token")
+			token_doc.user = frappe.session.user
+
+		token_doc.google_email = google_email
+		token_doc.access_token = creds.token
+		if creds.refresh_token:
+			token_doc.refresh_token = creds.refresh_token
+		token_doc.scopes = " ".join(creds.scopes) if creds.scopes else ""
+		token_doc.save(ignore_permissions=True)
+		frappe.db.commit()
+
+	except Exception as e:
+		frappe.log_error(str(e), "Gemini Google Callback")
+		frappe.respond_as_web_page(
+			"Error", "An unexpected error occurred while saving your credentials.", http_status_code=500
+		)
+		return
+
+	# Show a success page to the user.
+	frappe.respond_as_web_page(
+		"Successfully Connected!",
+		"""<div style='text-align: center; padding: 40px;'>
+              <h2>Your Google Account has been successfully connected.</h2>
+              <p>You can now close this tab and return to the Gemini Chat page in ERPNext.</p>
+           </div>""",
+		indicator_color="green",
+	)

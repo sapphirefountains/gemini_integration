@@ -5,16 +5,18 @@ from gemini_integration.gemini import (
 	generate_chat_response,
 	generate_tasks,
 	generate_text,
-	get_drive_file_for_analysis,
-	get_google_auth_url,
-	get_user_credentials,
-	is_google_integrated,
-	process_google_callback,
 	record_feedback,
 )
 from gemini_integration.tools import search_drive as search_google_drive
 from gemini_integration.tools import search_gmail as search_google_mail
-from gemini_integration.utils import handle_errors, log_activity
+from gemini_integration.utils import (
+	get_google_auth_url,
+	get_user_credentials,
+	handle_errors,
+	is_google_integrated,
+	log_activity,
+	process_google_callback,
+)
 
 
 @frappe.whitelist()
