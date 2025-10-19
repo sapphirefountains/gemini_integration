@@ -317,16 +317,48 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 			# If the conversation ID is invalid, we start a new conversation.
 			conversation_id = None
 
-	# 1. Determine which toolsets to use based on @-mentions
-	mentioned_services = re.findall(r"@(\w+)", prompt)
-	if not mentioned_services and not use_google_search:
-		mentioned_services = ["erpnext"]  # Default to ERPNext if no service is mentioned
+	# 1. Determine which toolsets to use based on @-mentions and search settings.
+	mentioned_services = re.findall(r"@(\w+)", prompt.lower())
+	tool_declarations = []
+
+	# Add tools from @-mentions
+	for service_name in mentioned_services:
+		if service_name in mcp._tool_registry:
+			tool = mcp._tool_registry[service_name]
+			# Sanitize the tool declaration for the Google API
+			input_schema = tool.get("input_schema")
+			if input_schema and "properties" in input_schema:
+				parameters = {
+					"type": "object",
+					"properties": input_schema.get("properties", {}),
+					"required": input_schema.get("required", []),
+				}
+			else:
+				parameters = None
+
+			declaration = {
+				"name": tool.get("name"),
+				"description": tool.get("description"),
+				"parameters": parameters,
+			}
+			declaration = {k: v for k, v in declaration.items() if v is not None}
+			if "parameters" in declaration:
+				declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
+			tool_declarations.append(declaration)
+
+	# Add the Google Search tool if enabled.
+	if settings.enable_google_search and use_google_search:
+		tool_declarations.append({"google_search": {}})
+
+	# If no tools are selected (no mentions, no search), the tool_declarations list will be empty,
+	# and the model will behave like a standard chatbot, which is the desired behavior.
 
 	# 2. Get user credentials if any Google services are mentioned
-	# This part can be improved to be more dynamic based on tool requirements
 	kwargs = {}
 	google_services = ["gmail", "drive", "calendar"]
 	if any(service in mentioned_services for service in google_services):
+		from gemini_integration.utils import get_user_credentials
+
 		creds = get_user_credentials()
 		if creds:
 			kwargs["credentials"] = creds
@@ -338,45 +370,8 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 				"conversation_id": conversation_id,
 			}
 
-	# 3. Set up the model with the available tools
+	# 3. Set up the model with the dynamically selected tools.
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
-
-	# The MCP's tool registry is not public, so we access the private attribute.
-	# The Gemini API expects a list of tool *declarations*. We need to sanitize them
-	# to include only the fields supported by the API.
-	tool_declarations = []
-	for tool in mcp._tool_registry.values():
-		# Create a sanitized declaration with only the allowed keys.
-		input_schema = tool.get("input_schema")
-
-		# The Google API requires the top-level schema to have `type: object`.
-		# `frappe-mcp` does not include this, so we must add it.
-		if input_schema and "properties" in input_schema:
-			parameters = {
-				"type": "object",
-				"properties": input_schema.get("properties", {}),
-				"required": input_schema.get("required", []),
-			}
-		else:
-			parameters = None
-
-		declaration = {
-			"name": tool.get("name"),
-			"description": tool.get("description"),
-			"parameters": parameters,
-		}
-
-		# Remove keys with None values as they are optional.
-		declaration = {k: v for k, v in declaration.items() if v is not None}
-
-		if "parameters" in declaration:
-			declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
-
-		tool_declarations.append(declaration)
-
-	# Add the Google Search tool if it's enabled by both the admin and the user.
-	if settings.enable_google_search and use_google_search:
-		tool_declarations.append({"google_search": {}})
 
 	tool_config = {"function_calling_config": {"mode": "AUTO"}}
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations, tool_config=tool_config)
