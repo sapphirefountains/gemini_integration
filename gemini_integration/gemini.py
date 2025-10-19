@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import re
 from datetime import datetime, timedelta
@@ -332,6 +333,43 @@ def get_erpnext_file_content(file_url):
 # --- MAIN CHAT FUNCTIONALITY ---
 
 
+def _sanitize_schema(schema):
+	"""Recursively removes properties of type 'object' from a JSON schema.
+
+	This is necessary because the Google Generative AI API does not support
+	a parameter type of 'object' for tool definitions. This function cleans
+	the schema to prevent errors when a tool's type hints (e.g., for credentials)
+	are introspected as complex objects.
+
+	Args:
+	    schema (dict): The JSON schema for a tool's parameters.
+
+	Returns:
+	    dict: The sanitized schema.
+	"""
+	if not isinstance(schema, dict) or "properties" not in schema:
+		return schema
+
+	properties = schema.get("properties", {})
+	required = schema.get("required", [])
+
+	props_to_remove = [
+		key for key, value in properties.items() if isinstance(value, dict) and value.get("type") == "object"
+	]
+
+	for prop in props_to_remove:
+		if prop in properties:
+			del properties[prop]
+		if prop in required:
+			required.remove(prop)
+
+	if not properties:
+		schema.pop("properties", None)
+		schema.pop("required", None)
+
+	return schema
+
+
 @log_activity
 @handle_errors
 def generate_chat_response(prompt, model=None, conversation_id=None):
@@ -393,6 +431,17 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 		}
 		# Remove keys with None values as they are optional.
 		declaration = {k: v for k, v in declaration.items() if v is not None}
+
+		if "parameters" in declaration:
+			# Sanitize a copy of the schema to avoid modifying the source.
+			params = copy.deepcopy(declaration["parameters"])
+			_sanitize_schema(params)
+			if params.get("properties"):
+				declaration["parameters"] = params
+			else:
+				# If sanitization removed all properties, remove the parameters key.
+				del declaration["parameters"]
+
 		tool_declarations.append(declaration)
 
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
