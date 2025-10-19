@@ -79,6 +79,9 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	    str: A formatted string of search results, or an error message.
 	"""
 	try:
+		# Fix: Ensure limit is an integer for slicing
+		limit = int(limit)
+
 		# If a specific doctype is provided, search only that. Otherwise, search a default list
 		# of common doctypes to find the most relevant document.
 		default_doctypes = [
@@ -160,8 +163,25 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 			search_scope = f"in DocType '{doctype}'" if doctype else "across the system"
 			return f"No documents {search_scope} found matching your query '{query}'."
 
-		# Format the results string, now including the DocType for clarity
-		results_string = f"Found {len(sorted_docs)} documents matching your query '{query}':\n"
+		# If the top match is significantly better than the second, retrieve its full context
+		if len(sorted_docs) == 1 or (
+			len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5
+		):
+			top_doc_info = sorted_docs[0]
+			doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
+			doc_dict = doc.as_dict()
+			context = f"Found a confident match for '{query}': {top_doc_info['label']} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
+			for field, value in doc_dict.items():
+				if value and not isinstance(value, list):
+					context += f"- {field}: {value}\n"
+			doc_url = get_url_to_form(top_doc_info["doctype"], top_doc_info["name"])
+			context += f"\nLink: {doc_url}"
+			return context
+
+		# Otherwise, return a list of top results for disambiguation
+		results_string = (
+			f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
+		)
 		for doc in sorted_docs[:limit]:
 			results_string += (
 				f"- {doc['label']} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
@@ -178,6 +198,9 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 
 search_erpnext_documents.service = "erpnext"
 
+
+# Note: Google Workspace tools were reviewed for float->int casting issues,
+# but none were found to have integer parameters that would be affected.
 @mcp.tool()
 @log_activity
 @handle_errors
