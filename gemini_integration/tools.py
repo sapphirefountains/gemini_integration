@@ -78,9 +78,19 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	    str: A formatted string of search results, or an error message.
 	"""
 	try:
-		# If a specific doctype is provided, search only that. Otherwise, search a default list.
-		# For this feature, we are defaulting to 'Project'. This can be expanded in the future.
-		doctypes_to_search = [doctype] if doctype else ["Project"]
+		# If a specific doctype is provided, search only that. Otherwise, search a default list
+		# of common doctypes to find the most relevant document.
+		default_doctypes = [
+			"Project",
+			"Customer",
+			"Supplier",
+			"Item",
+			"Sales Order",
+			"Purchase Order",
+			"Lead",
+			"Opportunity",
+		]
+		doctypes_to_search = [doctype] if doctype else default_doctypes
 		all_scored_docs = []
 
 		for dt in doctypes_to_search:
