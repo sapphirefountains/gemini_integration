@@ -84,7 +84,7 @@ def send_email(to: str, subject: str, body: str, confirmed: bool = False) -> str
 	    to (str): The recipient's email address.
 	    subject (str): The subject of the email.
 	    body (str): The body of the email.
-	    confirmed (bool, optional): If False, returns a draft. If True, sends the email. Defaults to False.
+	    confirmed (bool): If False, returns a draft. If True, sends the email. Defaults to False.
 
 	Returns:
 	    str: The draft of the email for user confirmation or a success/failure message.
@@ -901,7 +901,7 @@ def delete_drive_file(file_id: str, confirm: bool = False) -> str:
 
 	Args:
 	    file_id (str): The ID of the file to delete.
-	    confirm (bool, optional): Confirmation to delete. Defaults to False.
+	    confirm (bool): Confirmation to delete. Defaults to False.
 
 	Returns:
 	    str: A confirmation message or an error message.
@@ -965,7 +965,7 @@ def delete_gmail_message(message_id: str, confirm: bool = False) -> str:
 
 	Args:
 	    message_id (str): The ID of the message to delete.
-	    confirm (bool, optional): Confirmation to delete. Defaults to False.
+	    confirm (bool): Confirmation to delete. Defaults to False.
 
 	Returns:
 	    str: A confirmation message or an error message.
@@ -1078,7 +1078,7 @@ def delete_google_calendar_event(event_id: str, confirm: bool = False) -> str:
 
 	Args:
 	    event_id (str): The ID of the event to delete.
-	    confirm (bool, optional): Confirmation to delete. Defaults to False.
+	    confirm (bool): Confirmation to delete. Defaults to False.
 
 	Returns:
 	    str: A confirmation message or an error message.
