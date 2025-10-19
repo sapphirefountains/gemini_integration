@@ -484,13 +484,17 @@ CONTEXT:
 
 		try:
 			tool_function = mcp._tool_registry[tool_name]["fn"]
-			tool_result = tool_function(**tool_args)
+			tool_result_obj = tool_function(**tool_args)
+
+			# The tool now returns a dictionary. We need to extract the string representation
+			# to send back to the model, and the full data to store in our context.
+			tool_result_for_model = tool_result_obj.get("string_representation", "")
 
 			# --- CONTEXT RETENTION MODIFICATION ---
-			# If the tool was search_erpnext_documents, we save its result to the
-			# conversation history to ground future follow-up questions.
-			if tool_name == "search_erpnext_documents":
-				conversation_history.append({"role": "tool_context", "content": tool_result})
+			# If the tool found a confident match, save the full document dictionary
+			# to the conversation history for grounding future follow-up questions.
+			if tool_name == "search_erpnext_documents" and tool_result_obj.get("type") == "confident_match":
+				conversation_history.append({"role": "tool_context", "content": json.dumps(tool_result_obj)})
 			# --- END MODIFICATION ---
 
 		except Exception:
@@ -502,11 +506,11 @@ CONTEXT:
 			)
 
 		tool_calls_log.append(
-			{"tool": tool_name, "arguments": tool_args, "result": tool_result}
+			{"tool": tool_name, "arguments": tool_args, "result": tool_result_for_model}
 		)
 
 		function_response_payload = {
-			"function_response": {"name": tool_name, "response": {"contents": tool_result}}
+			"function_response": {"name": tool_name, "response": {"contents": tool_result_for_model}}
 		}
 
 		frappe.log_error(
