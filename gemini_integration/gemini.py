@@ -243,6 +243,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 		tool_declarations.append(declaration)
 
+	frappe.log_error(json.dumps(tool_declarations, indent=2), "GEMINI TOOL DEBUG")
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
 	chat = model_instance.start_chat()
 
