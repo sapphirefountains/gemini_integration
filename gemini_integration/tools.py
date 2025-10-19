@@ -63,7 +63,7 @@ get_doc_context.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list:
+def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list[dict]:
 	"""Searches for documents in ERPNext with a query, returning a scored and ranked list.
 
 	Args:
@@ -673,7 +673,7 @@ send_gmail_message.service = "gmail"
 @mcp.tool()
 @log_activity
 @handle_errors
-def modify_gmail_label(message_id: str, add_labels: list = None, remove_labels: list = None) -> str:
+def modify_gmail_label(message_id: str, add_labels: list[str] = None, remove_labels: list[str] = None) -> str:
 	"""Adds or removes labels from a Gmail message.
 
 	Args:
@@ -737,7 +737,7 @@ delete_gmail_message.service = "gmail"
 @mcp.tool()
 @log_activity
 @handle_errors
-def create_google_calendar_event(summary: str, start_time: str, end_time: str, attendees: list = None) -> str:
+def create_google_calendar_event(summary: str, start_time: str, end_time: str, attendees: list[str] = None) -> str:
 	"""Creates a new event in Google Calendar.
 
 	Args:
@@ -779,7 +779,7 @@ create_google_calendar_event.service = "calendar"
 @mcp.tool()
 @log_activity
 @handle_errors
-def update_google_calendar_event(event_id: str, summary: str = None, start_time: str = None, end_time: str = None, attendees: list = None) -> str:
+def update_google_calendar_event(event_id: str, summary: str = None, start_time: str = None, end_time: str = None, attendees: list[str] = None) -> str:
 	"""Updates an existing event in Google Calendar.
 
 	Args:
