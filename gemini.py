@@ -302,6 +302,56 @@ def get_user_credentials():
 # --- MAIN CHAT FUNCTIONALITY ---
 
 
+def _uppercase_schema_values(obj):
+	"""Recursively converts all JSON schema 'type' values to uppercase."""
+	if isinstance(obj, dict):
+		# Handle the case where 'type' is a key
+		if "type" in obj and isinstance(obj["type"], str):
+			obj["type"] = obj["type"].upper()
+		# Recurse through dictionary values
+		return {k: _uppercase_schema_values(v) for k, v in obj.items()}
+	elif isinstance(obj, list):
+		# Recurse through list elements
+		return [_uppercase_schema_values(elem) for elem in obj]
+	else:
+		return obj
+
+
+def _sanitize_tools(mcp_instance):
+	"""
+	Sanitizes tool definitions from the MCP registry to be compatible with the
+	Google Generative AI SDK.
+	"""
+	sanitized_tools = []
+	if not hasattr(mcp_instance, "_tool_registry"):
+		return []
+
+	# Accessing the private registry is the intended pattern for this library.
+	for tool_name, tool_def in mcp_instance._tool_registry.items():
+		# 1. Whitelist keys and rename 'input_schema' to 'parameters'.
+		# The 'fn' key contains the actual function object, which is not serializable
+		# and not needed by the Google API.
+		parameters = tool_def.get("input_schema", {})
+
+		# 2. Ensure the parameter schema has the required top-level 'type: object'.
+		if "properties" in parameters and parameters.get("type") != "object":
+			parameters = {
+				"type": "object",
+				"properties": parameters.get("properties", {}),
+				"required": parameters.get("required", []),
+			}
+
+		sanitized_tool = {
+			"name": tool_def.get("name"),
+			"description": tool_def.get("description"),
+			"parameters": parameters,
+		}
+
+		# 3. Recursively convert all schema type values to uppercase for SDK compatibility.
+		sanitized_tool = _uppercase_schema_values(sanitized_tool)
+		sanitized_tools.append(sanitized_tool)
+
+	return sanitized_tools
 
 
 @log_activity
@@ -310,69 +360,169 @@ def generate_chat_response(
 	prompt, model=None, conversation_id=None, selected_options=None, generation_config=None
 ):
 	"""
-	Orchestrates chat interactions using a tool-calling model.
+	Orchestrates chat interactions, including URL fetching, tool calling,
+	and conversation management.
 	"""
-	configure_gemini()
-	# The new implementation will use the tool-calling features of the `google-generativeai` library.
-	# It will pass the MCP tool definitions to the Gemini model, execute the function calls
-	# requested by the model, and return the final response.
+	# --- 1. Initial Setup and Configuration ---
+	if not configure_gemini():
+		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
-	# 1. Define the tool-calling model
-	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-pro"
-	# Pass the MCP tools to the model
-	tool_model = genai.GenerativeModel(model_name, tools=list(mcp._tool_registry.values()))
-
-	# 2. Start a chat session
-	chat = tool_model.start_chat()
-	# 3. Send the user's prompt
-	response = chat.send_message(prompt)
-
-	# 4. Handle function calls
-	while response.function_calls:
-		# Execute the function calls requested by the model
-		for func_call in response.function_calls:
-			# Get the tool definition from the MCP instance
-			tool = mcp._tool_registry.get(func_call.name)
-			if not tool:
-				# If the tool is not found, return an error to the model
-				response = chat.send_message(
-					f"Tool {func_call.name} not found.", role="function", is_response=True
-				)
-				continue
-
-			# Execute the tool's function with the provided arguments
-			try:
-				result = tool.fn(**func_call.args)
-				# Send the result back to the model
-				response = chat.send_message(
-					{"function_response": {"name": func_call.name, "content": result}},
-					is_response=True,
-				)
-			except Exception as e:
-				# If an error occurs during tool execution, return an error to the model
-				response = chat.send_message(
-					f"Error executing tool {func_call.name}: {e}", role="function", is_response=True
-				)
-
-	# 5. Save the conversation
+	# --- 2. Load Conversation History ---
 	conversation_history = []
 	if conversation_id:
 		try:
 			conv_doc = frappe.get_doc("Gemini Conversation", conversation_id)
 			if conv_doc.conversation:
-				conversation_history = json.loads(conv_doc.conversation)
+				# Transform stored history to the format required by the genai library
+				stored_history = json.loads(conv_doc.conversation)
+				for item in stored_history:
+					role = "user" if item["role"] == "user" else "model"
+					# Skip tool_context items for now, as they are for grounding, not direct history
+					if item["role"] != "tool_context":
+						conversation_history.append({"role": role, "parts": [item["text"]]})
 		except frappe.DoesNotExistError:
-			pass
+			# If the conversation ID is invalid, start a new conversation
+			conversation_id = None
+		except json.JSONDecodeError:
+			frappe.log_error(f"Could not parse conversation history for ID {conversation_id}", "Gemini Integration")
+			# Start a new conversation if history is corrupted
+			conversation_id = None
 
-	conversation_history.append({"role": "user", "text": prompt})
-	conversation_history.append({"role": "gemini", "text": response.text})
-	new_conversation_id = save_conversation(conversation_id, prompt, conversation_history)
+	# --- 3. URL and Document Context Injection ---
+	# This enriches the prompt with context from external sources before sending it to the model.
+	urls = extract_urls(prompt)
+	if urls:
+		url_context = get_url_context(urls)
+		prompt += f"\n\n--- Content from URLs ---\n{url_context}"
 
-	# 6. Return the final response
+	# --- 4. Tool and Model Configuration ---
+	gemini_settings = frappe.get_single("Gemini Settings")
+	model_name = model or gemini_settings.default_model or "gemini-1.5-pro"
+	all_tools = _sanitize_tools(mcp)
+
+	# Add Google Search as a tool if it's enabled in settings
+	if gemini_settings.enable_google_search:
+		# The new way to enable Google Search grounding
+		all_tools.append({"google_search": {}})
+
+	# Prepare model arguments
+	model_args = {"model_name": model_name}
+	if all_tools:
+		model_args["tools"] = all_tools
+		# tool_config is only valid if tools are provided
+		model_args["tool_config"] = {"function_calling_config": "AUTO"}
+
+	# --- 5. System Instruction Setup ---
+	system_instruction = gemini_settings.system_instruction or (
+		"You are a helpful assistant integrated into ERPNext. "
+		"Base your answers *only* on the results from the tools provided. "
+		"If the tools do not provide the information, explicitly state that the information was not found. "
+		"Do not invent or hallucinate data."
+	)
+	model_args["system_instruction"] = system_instruction
+
+	# --- 6. Initialize Model and Chat ---
+	# The model must be re-initialized if the system prompt or tools change.
+	model_instance = genai.GenerativeModel(**model_args)
+	chat = model_instance.start_chat(history=conversation_history)
+	final_response_text = ""
+	max_tool_calls = 10
+	tool_call_count = 0
+
+	# --- 7. Main Tool-Calling Loop ---
+	while tool_call_count < max_tool_calls:
+		# Send the prompt to the model
+		response = chat.send_message(prompt)
+		has_function_call = False
+
+		# Check parts for a function call
+		for part in response.candidates[0].content.parts:
+			if part.function_call:
+				has_function_call = True
+				function_call = part.function_call
+				tool = mcp._tool_registry.get(function_call.name)
+
+				# Debug log: Log the raw function call received from the model
+				frappe.log_error(
+					message=f"Gemini Function Call: {function_call.name} with args {function_call.args}",
+					title="Gemini Debug",
+				)
+
+				if not tool:
+					# If the model hallucinates a tool that doesn't exist
+					result_content = f"Error: Tool '{function_call.name}' not found."
+				else:
+					try:
+						# Execute the actual tool function
+						result = tool["fn"](**function_call.args)
+						result_content = result
+					except Exception:
+						# Catch errors during tool execution
+						result_content = "Error: An exception occurred while executing the tool."
+						frappe.log_error(
+							message=frappe.get_traceback(),
+							title=f"Gemini Tool Execution Error: {function_call.name}",
+						)
+
+				# Prepare the response to send back to the model
+				function_response = {
+					"function_response": {
+						"name": function_call.name,
+						"response": {"content": result_content},
+					}
+				}
+
+				# Debug log: Log the full function response payload
+				frappe.log_error(
+					message=f"Gemini Function Response: {json.dumps(function_response, indent=2)}",
+					title="Gemini Debug",
+				)
+
+				# Send the tool's result back to the model for the next turn
+				# Note: The SDK expects a plain list, not a genai.Content object here.
+				prompt = [function_response]
+				break  # Exit the inner loop once a function call is handled
+
+		# If no function call was found in the parts, the loop can terminate.
+		if not has_function_call:
+			try:
+				# Safely access the response text
+				final_response_text = response.text
+			except ValueError:
+				# This can happen if the response is blocked or has no text part.
+				final_response_text = "The model did not provide a text response. This could be due to the prompt, safety settings, or a tool call."
+				frappe.log_error(
+					message="ValueError accessing response.text. The response may have been blocked or empty.",
+					title="Gemini Response Error",
+				)
+			break
+
+		tool_call_count += 1
+
+	if tool_call_count >= max_tool_calls:
+		final_response_text = "The request exceeded the maximum number of tool calls. Please try again with a more specific prompt."
+
+	# --- 8. Save and Return Final Response ---
+	# Load the latest conversation history before saving
+	full_history = []
+	if conversation_id:
+		try:
+			conv_doc = frappe.get_doc("Gemini Conversation", conversation_id)
+			if conv_doc.conversation:
+				full_history = json.loads(conv_doc.conversation)
+		except (frappe.DoesNotExistError, json.JSONDecodeError):
+			pass  # Start fresh if history is missing or corrupt
+
+	# Append the new user prompt and the final model response
+	full_history.append({"role": "user", "text": prompt if isinstance(prompt, str) else "Tool output"})
+	full_history.append({"role": "gemini", "text": final_response_text})
+
+	new_conversation_id = save_conversation(conversation_id, prompt if isinstance(prompt, str) else "Chat", full_history)
+
 	return {
-		"response": response.text,
+		"response": final_response_text,
 		"conversation_id": new_conversation_id,
-		"clarification_needed": False,
+		"clarification_needed": False, # This can be enhanced in the future
 	}
 
 
