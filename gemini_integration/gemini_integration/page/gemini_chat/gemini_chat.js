@@ -54,7 +54,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
             <div class="conversations-sidebar">
                 <div class="sidebar-header">
                     <h4>Conversations</h4>
-                    <button id="new-chat-button" class="btn btn-primary btn-sm">New</button>
+                    <div>
+                        <button id="new-chat-button" class="btn btn-primary btn-sm">New</button>
+                        <button id="close-sidebar-btn" class="btn btn-default btn-sm"><i class="fa fa-times"></i></button>
+                    </div>
                 </div>
                 <ul id="conversations-list" class="list-group"></ul>
             </div>
@@ -93,7 +96,9 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	let new_chat_btn = $(page.body).find("#new-chat-button");
 	let conversations_list = $(page.body).find("#conversations-list");
 	let sidebar_toggle_btn = $(page.body).find(".sidebar-toggle-btn");
+	let close_sidebar_btn = $(page.body).find("#close-sidebar-btn");
 	let gemini_chat_container = $(page.body).find(".gemini-chat-container");
+	let gemini_chat_wrapper = $(page.body).find(".gemini-chat-wrapper");
 	let conversation = [];
 
 	page.model_selector = frappe.ui.form.make_control({
@@ -156,7 +161,9 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	});
 
-	sidebar_toggle_btn.on("click", () => gemini_chat_container.toggleClass("sidebar-open"));
+	sidebar_toggle_btn.on("click", () => gemini_chat_container.addClass("sidebar-open"));
+	close_sidebar_btn.on("click", () => gemini_chat_container.removeClass("sidebar-open"));
+	gemini_chat_wrapper.on("click", () => gemini_chat_container.removeClass("sidebar-open"));
 
 	help_btn.on("click", () => {
 		const help_html = `
@@ -312,9 +319,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 				if (r.message) {
 					r.message.forEach((conv) => {
 						let active_class = conv.name === currentConversation ? "active" : "";
-						conversations_list.append(
-							`<li class="list-group-item ${active_class}" data-id="${conv.name}">${conv.title}</li>`
+						let conversation_link = $(
+							`<a href="/app/gemini-chat/${conv.name}" class="list-group-item ${active_class}" data-id="${conv.name}">${conv.title}</a>`
 						);
+						conversations_list.append($("<li>").append(conversation_link));
 					});
 				}
 			},
@@ -345,10 +353,23 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		load_conversations();
 	});
 
-	conversations_list.on("click", ".list-group-item", function () {
-		load_conversation($(this).data("id"));
+	conversations_list.on("click", ".list-group-item", function (e) {
+		e.preventDefault();
+		const conversation_id = $(this).data("id");
+		history.pushState({ conversation_id: conversation_id }, "", `/app/gemini-chat/${conversation_id}`);
+		load_conversation(conversation_id);
 	});
 
 	load_conversations();
-	add_to_history("gemini", "Hello! How can I help you today?");
+
+	const handle_initial_load = () => {
+		const path = window.location.pathname;
+		const match = path.match(/^\/app\/gemini-chat\/(CON-\d{5,})$/);
+		if (match) {
+			load_conversation(match[1]);
+		} else {
+			add_to_history("gemini", "Hello! How can I help you today?");
+		}
+	};
+	handle_initial_load();
 };
