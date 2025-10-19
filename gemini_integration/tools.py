@@ -70,6 +70,38 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 @mcp.tool()
 @log_activity
 @handle_errors
+def create_gmail_draft(to: str, subject: str, body: str) -> str:
+	"""Creates a draft email in Gmail.
+
+	Args:
+	    to (str): The recipient's email address.
+	    subject (str): The subject of the email.
+	    body (str): The body of the email.
+
+	Returns:
+	    str: A confirmation message or an error message.
+	"""
+	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
+		service = build("gmail", "v1", credentials=credentials)
+		message = MIMEText(body)
+		message["to"] = to
+		message["subject"] = subject
+		raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+		draft_body = {"message": {"raw": raw_message}}
+		draft = service.users().drafts().create(userId="me", body=draft_body).execute()
+		return f"Draft created successfully with Draft ID: {draft['id']}"
+	except HttpError as error:
+		return f"An error occurred with Gmail: {error}"
+
+create_gmail_draft.service = "gmail"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
 def get_doc_context(doctype: str, docname: str) -> str:
 	"""Fetches and formats a document's data for context.
 

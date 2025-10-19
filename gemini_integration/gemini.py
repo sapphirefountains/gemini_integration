@@ -335,7 +335,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 				"search_google_contacts",
 			],
 			"drive": ["search_drive"],
-			"gmail": ["search_gmail"],
+			"gmail": ["search_gmail", "create_gmail_draft"],
 			"calendar": ["search_calendar"],
 			"contacts": ["search_google_contacts"],
 		}
