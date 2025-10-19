@@ -420,6 +420,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 	response = chat.send_message(prompt)
 
 	# Loop to handle multiple potential tool calls from the model
+	tool_calls_log = []
 	while True:
 		# Check if the model's response contains a function call.
 		# This check is more robust and avoids potential IndexErrors.
@@ -454,6 +455,11 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 				f"An error occurred while executing the tool: {tool_name}. Please check the Error Log for details."
 			)
 
+		# Store the tool call details for eventual logging
+		tool_calls_log.append(
+			{"tool": tool_name, "arguments": tool_args, "result": tool_result}
+		)
+
 		# Send the tool's result back to the model
 		response = chat.send_message(
 			[
@@ -473,6 +479,19 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 		# This occurs if the response has no text part (e.g., due to safety filters
 		# or a function call without a final text response).
 		final_response_text = "No response from the model."
+
+	# If tools were called, log the complete trace for debugging.
+	if tool_calls_log:
+		log_entry = {
+			"source": "Gemini Tool Call Trace",
+			"tool_calls": tool_calls_log,
+			"final_response": final_response_text,
+		}
+		frappe.log_error(
+			message=json.dumps(log_entry, indent=2, default=str),
+			title="Gemini Tool Call Trace",
+		)
+
 	# The concept of "thoughts" from the old MCP implementation doesn't directly map.
 	# We will create a placeholder for now.
 	thoughts = "The model generated a response, potentially after using tools."
