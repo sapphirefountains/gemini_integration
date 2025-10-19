@@ -263,7 +263,6 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			"name": tool.get("name"),
 			"description": tool.get("description"),
 			"parameters": parameters,
-			"output_schema": tool.get("output_schema"),
 		}
 
 		# Remove keys with None values as they are optional.
@@ -273,10 +272,6 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
 
 		tool_declarations.append(declaration)
-
-	# --- Debugging ---
-	frappe.log_error(f"Gemini Tools: {json.dumps(tool_declarations, indent=2)}", "Gemini Debug")
-	# --- End Debugging ---
 
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
 	chat = model_instance.start_chat()
