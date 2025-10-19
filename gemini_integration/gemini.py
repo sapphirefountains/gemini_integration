@@ -105,6 +105,7 @@ import google.generativeai as genai
 import requests
 from frappe.utils import get_site_url, get_url_to_form
 from google.generativeai import files
+from google.generativeai.types import GoogleSearch, Tool
 
 # Google API Imports
 from googleapiclient.errors import HttpError
@@ -372,6 +373,10 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
 
 		tool_declarations.append(declaration)
+
+	# Add the Google Search tool to the list of available tools.
+	# This allows the model to ground its responses in up-to-date, real-world info.
+	tool_declarations.append(Tool(google_search=GoogleSearch()))
 
 	tool_config = {"function_calling_config": {"mode": "AUTO"}}
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations, tool_config=tool_config)
