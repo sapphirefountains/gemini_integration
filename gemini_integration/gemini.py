@@ -285,7 +285,12 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	response = chat.send_message(prompt)
 
 	# Loop to handle multiple potential tool calls from the model
-	while response.candidates[0].content.parts[0].function_call.name:
+	while True:
+		# Check if the model's response contains a function call
+		if not response.candidates[0].content.parts or not response.candidates[0].content.parts[0].function_call.name:
+			# If no function call, this is the final response
+			break
+
 		function_call = response.candidates[0].content.parts[0].function_call
 		tool_name = function_call.name
 		tool_args = {key: value for key, value in function_call.args.items()}
@@ -298,24 +303,27 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 		try:
 			tool_function = mcp._tool_registry[tool_name]["fn"]
 			tool_result = tool_function(**tool_args)
-		except Exception as e:
-			frappe.log_error(f"Error executing tool '{tool_name}': {e!s}", "Gemini Integration")
-			tool_result = f"An error occurred: {e!s}"
+		except Exception:
+			frappe.log_error(
+				message=frappe.get_traceback(),
+				title=f"Error executing tool: {tool_name}",
+			)
+			frappe.throw(
+				f"An error occurred while executing the tool: {tool_name}. Please check the Error Log for details."
+			)
 
 		# Send the tool's result back to the model
 		response = chat.send_message(
-			[
-				{
-					"function_response": {
-						"name": tool_name,
-						"response": {"result": tool_result},
-					}
-				}
-			]
+			part=genai.types.Part(
+				function_response=genai.types.FunctionResponse(
+					name=tool_name,
+					response={"result": tool_result},
+				)
+			)
 		)
 
 	# 5. Extract the final text response and thoughts
-	final_response_text = response.text
+	final_response_text = response.text if response.text else "No response from the model."
 	# The concept of "thoughts" from the old MCP implementation doesn't directly map.
 	# We will create a placeholder for now.
 	thoughts = "The model generated a response, potentially after using tools."
