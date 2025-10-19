@@ -192,6 +192,19 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	Returns:
 	    dict: A dictionary containing the response, thoughts, and conversation ID.
 	"""
+	# Configure the Gemini client before proceeding
+	settings = frappe.get_single("Gemini Settings")
+	api_key = settings.get_password("api_key")
+	if not api_key:
+		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
+
+	try:
+		genai.configure(api_key=api_key)
+	except Exception as e:
+		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
+		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
+
+
 	from gemini_integration.mcp import mcp
 
 	conversation_history = []
