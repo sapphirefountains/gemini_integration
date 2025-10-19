@@ -13,6 +13,7 @@ import base64
 import frappe
 from frappe.utils import get_url_to_form
 from googleapiclient.discovery import build
+import json
 from googleapiclient.errors import HttpError
 from thefuzz import fuzz, process
 
@@ -70,33 +71,131 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 @mcp.tool()
 @log_activity
 @handle_errors
-def create_gmail_draft(to: str, subject: str, body: str) -> str:
-	"""Creates a draft email in Gmail.
+def send_email(to: str, subject: str, body: str, confirmed: bool = False) -> str:
+	"""
+	Prepares a draft or sends an email.
+
+	IMPORTANT:
+	1. First, call this function with confirmed=False. This will return a draft of the email.
+	2. Present this draft to the user for approval.
+	3. If the user approves, call the function again with the same parameters and confirmed=True to send the email.
 
 	Args:
 	    to (str): The recipient's email address.
 	    subject (str): The subject of the email.
 	    body (str): The body of the email.
+	    confirmed (bool, optional): If False, returns a draft. If True, sends the email. Defaults to False.
 
 	Returns:
-	    str: A confirmation message or an error message.
+	    str: The draft of the email for user confirmation or a success/failure message.
 	"""
+	if not confirmed:
+		draft = f"**Email Draft for your approval:**\n\n"
+		draft += f"**To:** {to}\n"
+		draft += f"**Subject:** {subject}\n"
+		draft += f"**Body:**\n{body}\n\n"
+		draft += "Please confirm if you want to send this email."
+		return draft
+
 	try:
 		credentials = get_user_credentials()
 		if not credentials:
 			return "Could not get user credentials. Please make sure you have authenticated with Google."
+
 		service = build("gmail", "v1", credentials=credentials)
 		message = MIMEText(body)
-		message["to"] = to
-		message["subject"] = subject
-		raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-		draft_body = {"message": {"raw": raw_message}}
-		draft = service.users().drafts().create(userId="me", body=draft_body).execute()
-		return f"Draft created successfully with Draft ID: {draft['id']}"
-	except HttpError as error:
-		return f"An error occurred with Gmail: {error}"
+		message['to'] = to
+		message['subject'] = subject
 
-create_gmail_draft.service = "gmail"
+		raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+		create_message = {'raw': raw_message}
+
+		send_message = service.users().messages().send(userId="me", body=create_message).execute()
+		return f"Email sent successfully with Message ID: {send_message['id']}"
+
+	except HttpError as error:
+		frappe.log_error(f"An error occurred with Gmail: {error}", "Gemini Gmail Error")
+		return "An error occurred while sending the email. Please check the logs for details."
+	except Exception as e:
+		frappe.log_error(f"An unexpected error occurred in send_email: {e}", "Gemini Gmail Error")
+		return "An unexpected error occurred. Please contact the system administrator."
+
+send_email.service = "gmail"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def search_contact_for_email(name: str) -> str:
+	"""Searches Google Contacts for a person by name to find their email address.
+
+	Args:
+	    name (str): The name of the person to search for.
+
+	Returns:
+	    str: A JSON string containing the best match's email, a list for disambiguation, or a not found message.
+	"""
+	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return json.dumps(
+				{"error": "Could not get user credentials. Please make sure you have authenticated with Google."}
+			)
+		people_service = build("people", "v1", credentials=credentials)
+
+		# Search for the contact
+		results = (
+			people_service.people()
+			.searchContacts(query=name, pageSize=5, readMask="names,emailAddresses")
+			.execute()
+		)
+
+		people = results.get("results", [])
+		if not people:
+			return json.dumps({"status": "not_found", "message": f"No contact found matching the name '{name}'."})
+
+		contacts_with_email = []
+		for person_result in people:
+			person = person_result.get("person", {})
+			display_name = person.get("names", [{}])[0].get("displayName", "N/A")
+			email_addresses = person.get("emailAddresses", [])
+
+			if email_addresses:
+				primary_email = email_addresses[0].get("value")
+				if primary_email:
+					score = fuzz.token_set_ratio(name, display_name)
+					contacts_with_email.append(
+						{"name": display_name, "email": primary_email, "score": score}
+					)
+
+		if not contacts_with_email:
+			return json.dumps({"status": "not_found", "message": f"No contact with an email address found for '{name}'."})
+
+		# Sort by score descending
+		sorted_contacts = sorted(contacts_with_email, key=lambda x: x["score"], reverse=True)
+
+		# If top match has a much higher score, return it as a confident match
+		if len(sorted_contacts) > 1 and sorted_contacts[0]["score"] > sorted_contacts[1]["score"] * 1.5:
+			return json.dumps({"status": "found", "email": sorted_contacts[0]["email"]})
+
+		# If there's only one result with a decent score
+		if len(sorted_contacts) == 1 and sorted_contacts[0]["score"] > 70:
+			return json.dumps({"status": "found", "email": sorted_contacts[0]["email"]})
+
+		# Otherwise, return a list for the user to clarify
+		return json.dumps({
+			"status": "disambiguation",
+			"message": "Found multiple contacts. Please clarify which one you mean.",
+			"contacts": sorted_contacts
+		})
+
+	except HttpError as error:
+		frappe.log_error(
+			f"Google People API Error for query '{name}': {str(error.content)[:100]}", "Gemini Contact Search Error"
+		)
+		return json.dumps({"status": "error", "message": "An API error occurred during contact search."})
+
+search_contact_for_email.service = "google"
 
 
 @mcp.tool()
@@ -820,38 +919,6 @@ def delete_drive_file(file_id: str, confirm: bool = False) -> str:
 		return f"An error occurred with Google Drive: {error}"
 
 delete_drive_file.service = "drive"
-
-
-@mcp.tool()
-@log_activity
-@handle_errors
-def send_gmail_message(to: str, subject: str, body: str) -> str:
-	"""Sends an email using Gmail.
-
-	Args:
-	    to (str): The recipient's email address.
-	    subject (str): The subject of the email.
-	    body (str): The body of the email.
-
-	Returns:
-	    str: A confirmation message or an error message.
-	"""
-	try:
-		credentials = get_user_credentials()
-		if not credentials:
-			return "Could not get user credentials. Please make sure you have authenticated with Google."
-		service = build("gmail", "v1", credentials=credentials)
-		message = MIMEText(body)
-		message['to'] = to
-		message['subject'] = subject
-		raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-		create_message = {'raw': raw_message}
-		send_message = (service.users().messages().send(userId="me", body=create_message).execute())
-		return f"Email sent successfully with Message ID: {send_message['id']}"
-	except HttpError as error:
-		return f"An error occurred with Gmail: {error}"
-
-send_gmail_message.service = "gmail"
 
 
 @mcp.tool()
