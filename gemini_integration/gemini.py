@@ -397,14 +397,26 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 	# 3. Set up the model with the dynamically selected tools.
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
+	# Add a system instruction to ground the model and prevent hallucinations.
+	system_instruction = """
+You are an AI assistant integrated into ERPNext. When you use tools to access ERPNext data (like 'search_erpnext_documents'), you must strictly follow these rules:
+1. Base your answers ONLY on the information returned by the tool.
+2. If the tool returns a message like 'No documents found', you MUST state that you did not find any matching documents. Do NOT invent or suggest documents from your own knowledge.
+3. If the tool returns a list of potential matches, you MUST present this list to the user for clarification. Do NOT treat it as a final answer.
+4. Clearly separate information that comes from ERPNext tools from your general knowledge. For example, say 'I found the following in ERPNext...' when presenting tool results.
+"""
+
 	# Only add tool_config if there are tools to configure.
 	if tool_declarations:
 		tool_config = {"function_calling_config": {"mode": "AUTO"}}
 		model_instance = genai.GenerativeModel(
-			model_name, tools=tool_declarations, tool_config=tool_config
+			model_name,
+			tools=tool_declarations,
+			tool_config=tool_config,
+			system_instruction=system_instruction,
 		)
 	else:
-		model_instance = genai.GenerativeModel(model_name)
+		model_instance = genai.GenerativeModel(model_name, system_instruction=system_instruction)
 
 	# The Gemini API expects a specific format for conversation history.
 	# We need to transform our stored history to match this format.
