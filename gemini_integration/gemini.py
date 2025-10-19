@@ -376,7 +376,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 
 	# Add the Google Search tool if it's enabled by both the admin and the user.
 	if settings.enable_google_search and use_google_search:
-		tool_declarations.append({"google_search_retrieval": {}})
+		tool_declarations.append({"google_search": {}})
 
 	tool_config = {"function_calling_config": {"mode": "AUTO"}}
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations, tool_config=tool_config)
