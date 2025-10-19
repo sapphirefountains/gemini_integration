@@ -321,30 +321,56 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 	mentioned_services = re.findall(r"@(\w+)", prompt.lower())
 	tool_declarations = []
 
-	# Add tools from @-mentions
-	for service_name in mentioned_services:
-		if service_name in mcp._tool_registry:
-			tool = mcp._tool_registry[service_name]
-			# Sanitize the tool declaration for the Google API
-			input_schema = tool.get("input_schema")
-			if input_schema and "properties" in input_schema:
-				parameters = {
-					"type": "object",
-					"properties": input_schema.get("properties", {}),
-					"required": input_schema.get("required", []),
-				}
-			else:
-				parameters = None
+	# If no specific services are mentioned, the model will act as a general chatbot.
+	# If services are mentioned, we gather the appropriate tools.
+	if mentioned_services:
+		# Create a mapping from the service mention to the tool function names.
+		# This is more robust than relying on direct name matching.
+		service_to_tool_map = {
+			"erpnext": ["search_erpnext_documents"],
+			"google": [
+				"search_drive",
+				"search_gmail",
+				"search_calendar",
+				"search_google_contacts",
+			],
+			"drive": ["search_drive"],
+			"gmail": ["search_gmail"],
+			"calendar": ["search_calendar"],
+			"contacts": ["search_google_contacts"],
+		}
 
-			declaration = {
-				"name": tool.get("name"),
-				"description": tool.get("description"),
-				"parameters": parameters,
-			}
-			declaration = {k: v for k, v in declaration.items() if v is not None}
-			if "parameters" in declaration:
-				declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
-			tool_declarations.append(declaration)
+		# Get a list of all tool names to add based on the mentions.
+		tools_to_add = set()
+		for service in mentioned_services:
+			tool_names = service_to_tool_map.get(service, [])
+			for tool_name in tool_names:
+				tools_to_add.add(tool_name)
+
+		# Now, add the tool declarations for the selected tools.
+		for tool_name in tools_to_add:
+			if tool_name in mcp._tool_registry:
+				tool = mcp._tool_registry[tool_name]
+				# Sanitize the tool declaration for the Google API
+				input_schema = tool.get("input_schema")
+				if input_schema and "properties" in input_schema:
+					parameters = {
+						"type": "object",
+						"properties": input_schema.get("properties", {}),
+						"required": input_schema.get("required", []),
+					}
+				else:
+					parameters = None # Should not happen if schema is well-formed
+
+				declaration = {
+					"name": tool.get("name"),
+					"description": tool.get("description"),
+					"parameters": parameters,
+				}
+				declaration = {k: v for k, v in declaration.items() if v is not None}
+				if "parameters" in declaration:
+					declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
+				tool_declarations.append(declaration)
 
 	# Add the Google Search tool if enabled.
 	if settings.enable_google_search and use_google_search:
