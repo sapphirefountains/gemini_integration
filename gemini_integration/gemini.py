@@ -378,7 +378,28 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			}
 
 	# 3. Execute the prompt using the MCP server
-	response = mcp.execute(prompt, **kwargs)
+	from werkzeug.wrappers import Request, Response
+	import uuid
+
+	request_data = {
+		"jsonrpc": "2.0",
+		"id": str(uuid.uuid4()),
+		"method": "completion/complete",
+		"params": {
+			"prompt": prompt,
+			**kwargs
+		}
+	}
+
+	# The MCP object expects werkzeug request/response objects.
+	# We don't have a real HTTP request here, so we'll simulate it.
+	# The MCP's handle method will process this and return a response.
+	# We have to access internal methods, which is not ideal but necessary here.
+	response_obj = Response()
+	mcp._handle_request(request_data['id'], request_data, response_obj)
+	response = json.loads(response_obj.data)
+	response = response.get("result", {})
+
 
 	# 5. Save the conversation
 	conversation_history.append({"role": "user", "text": prompt})
