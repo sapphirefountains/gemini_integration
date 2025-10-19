@@ -281,12 +281,23 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 	# Loop to handle multiple potential tool calls from the model
 	while True:
-		# Check if the model's response contains a function call
-		if not response.candidates[0].content.parts or not response.candidates[0].content.parts[0].function_call.name:
-			# If no function call, this is the final response
+		# Check if the model's response contains a function call.
+		# This check is more robust and avoids potential IndexErrors.
+		function_call = None
+		if (
+			response.candidates
+			and response.candidates[0].content
+			and response.candidates[0].content.parts
+		):
+			for part in response.candidates[0].content.parts:
+				if part.function_call:
+					function_call = part.function_call
+					break  # Handle the first function call found
+
+		if not function_call:
+			# If no function call is found, this is the final response.
 			break
 
-		function_call = response.candidates[0].content.parts[0].function_call
 		tool_name = function_call.name
 		tool_args = {key: value for key, value in function_call.args.items()}
 
@@ -319,8 +330,13 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			]
 		)
 
-	# 5. Extract the final text response and thoughts
-	final_response_text = response.text if response.text else "No response from the model."
+	# 5. Extract the final text response and thoughts, handling potential errors
+	try:
+		final_response_text = response.text
+	except ValueError:
+		# This occurs if the response has no text part (e.g., due to safety filters
+		# or a function call without a final text response).
+		final_response_text = "No response from the model."
 	# The concept of "thoughts" from the old MCP implementation doesn't directly map.
 	# We will create a placeholder for now.
 	thoughts = "The model generated a response, potentially after using tools."
