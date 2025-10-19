@@ -147,7 +147,20 @@ def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list[d
 		frappe.log_error(f"Error searching ERPNext documents: {e!s}")
 		return []
 
+search_erpnext_documents.output_schema = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "doctype": {"type": "string"},
+            "score": {"type": "number"},
+            "label": {"type": "string"},
+        },
+    },
+}
 search_erpnext_documents.service = "erpnext"
+
 
 @mcp.tool()
 @log_activity

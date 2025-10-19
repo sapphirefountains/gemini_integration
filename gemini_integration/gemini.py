@@ -263,6 +263,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			"name": tool.get("name"),
 			"description": tool.get("description"),
 			"parameters": parameters,
+			"output_schema": tool.get("output_schema"),
 		}
 
 		# Remove keys with None values as they are optional.
