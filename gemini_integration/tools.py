@@ -14,6 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from thefuzz import fuzz, process
 
+from gemini_integration.gemini import get_user_credentials
 from gemini_integration.mcp import mcp
 from gemini_integration.utils import handle_errors, log_activity
 
@@ -148,22 +149,22 @@ def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list:
 
 search_erpnext_documents.service = "erpnext"
 
-from google.oauth2.credentials import Credentials
-
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_gmail(credentials: Credentials, query: str) -> str:
+def search_gmail(query: str) -> str:
 	"""Searches Gmail for a query and returns message subjects and snippets.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    query (str): The search query.
 
 	Returns:
 	    str: A formatted string of email context, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("gmail", "v1", credentials=credentials)
 
 		if query.strip():
@@ -226,17 +227,19 @@ search_gmail.service = "gmail"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_drive(credentials: Credentials, query: str) -> str:
+def search_drive(query: str) -> str:
 	"""Searches Google Drive for a query or lists recent files.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    query (str): The search query.
 
 	Returns:
 	    str: A formatted string of file context, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("drive", "v3", credentials=credentials)
 
 		if query.strip():
@@ -273,17 +276,19 @@ search_drive.service = "drive"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_calendar(credentials: Credentials, query: str) -> str:
+def search_calendar(query: str) -> str:
 	"""Searches calendar events for the next 7 days.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    query (str): The search query.
 
 	Returns:
 	    str: A formatted string of calendar events, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("calendar", "v3", credentials=credentials)
 		now = datetime.utcnow()
 		time_min = now.isoformat() + "Z"
@@ -332,17 +337,19 @@ search_calendar.service = "calendar"
 @mcp.tool()
 @log_activity
 @handle_errors
-def get_drive_file_context(credentials: Credentials, file_id: str) -> str:
+def get_drive_file_context(file_id: str) -> str:
 	"""Fetches a Drive file's metadata and content, supporting Shared Drives.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    file_id (str): The ID of the Google Drive file.
 
 	Returns:
 	    str: The formatted context of the file, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("drive", "v3", credentials=credentials)
 		file_meta = (
 			service.files()
@@ -389,17 +396,19 @@ get_drive_file_context.service = "drive"
 @mcp.tool()
 @log_activity
 @handle_errors
-def get_gmail_message_context(credentials: Credentials, message_id: str) -> str:
+def get_gmail_message_context(message_id: str) -> str:
 	"""Fetches a specific Gmail message's headers and body.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    message_id (str): The ID of the Gmail message.
 
 	Returns:
 	    str: The formatted context of the email, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("gmail", "v1", credentials=credentials)
 		msg_data = service.users().messages().get(userId="me", id=message_id, format="full").execute()
 
@@ -459,17 +468,19 @@ find_best_match_for_doctype.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_google_contacts(credentials: Credentials, name: str) -> dict:
+def search_google_contacts(name: str) -> dict:
 	"""Searches Google Contacts for a person by name and returns the best match.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    name (str): The name of the person to search for.
 
 	Returns:
 	    dict: A dictionary containing the best match or a list of suggestions.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return {"error": "Could not get user credentials. Please make sure you have authenticated with Google."}
 		people_service = build("people", "v1", credentials=credentials)
 		gmail_service = build("gmail", "v1", credentials=credentials)
 
@@ -540,11 +551,10 @@ search_google_contacts.service = "google"
 @mcp.tool()
 @log_activity
 @handle_errors
-def create_drive_file(credentials: Credentials, file_name: str, file_content: str, folder_id: str = None) -> str:
+def create_drive_file(file_name: str, file_content: str, folder_id: str = None) -> str:
 	"""Creates a new file in Google Drive.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    file_name (str): The name of the file to create.
 	    file_content (str): The content of the file.
 	    folder_id (str, optional): The ID of the folder to create the file in. Defaults to None.
@@ -553,6 +563,9 @@ def create_drive_file(credentials: Credentials, file_name: str, file_content: st
 	    str: A confirmation message with the link to the new file, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("drive", "v3", credentials=credentials)
 		file_metadata = {"name": file_name}
 		if folder_id:
@@ -572,11 +585,10 @@ create_drive_file.service = "drive"
 @mcp.tool()
 @log_activity
 @handle_errors
-def update_drive_file(credentials: Credentials, file_id: str, file_content: str) -> str:
+def update_drive_file(file_id: str, file_content: str) -> str:
 	"""Updates the content of an existing file in Google Drive.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    file_id (str): The ID of the file to update.
 	    file_content (str): The new content of the file.
 
@@ -584,6 +596,9 @@ def update_drive_file(credentials: Credentials, file_id: str, file_content: str)
 	    str: A confirmation message or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("drive", "v3", credentials=credentials)
 		fh = BytesIO(file_content.encode('utf-8'))
 		media = MediaIoBaseUpload(fh, mimetype='text/plain')
@@ -599,11 +614,10 @@ update_drive_file.service = "drive"
 @mcp.tool()
 @log_activity
 @handle_errors
-def delete_drive_file(credentials: Credentials, file_id: str, confirm: bool = False) -> str:
+def delete_drive_file(file_id: str, confirm: bool = False) -> str:
 	"""Deletes a file from Google Drive.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    file_id (str): The ID of the file to delete.
 	    confirm (bool, optional): Confirmation to delete. Defaults to False.
 
@@ -613,6 +627,9 @@ def delete_drive_file(credentials: Credentials, file_id: str, confirm: bool = Fa
 	if not confirm:
 		return "Please confirm that you want to delete this file by calling this function again with confirm=True."
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("drive", "v3", credentials=credentials)
 		service.files().delete(fileId=file_id).execute()
 		return "File deleted successfully."
@@ -625,11 +642,10 @@ delete_drive_file.service = "drive"
 @mcp.tool()
 @log_activity
 @handle_errors
-def send_gmail_message(credentials: Credentials, to: str, subject: str, body: str) -> str:
+def send_gmail_message(to: str, subject: str, body: str) -> str:
 	"""Sends an email using Gmail.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    to (str): The recipient's email address.
 	    subject (str): The subject of the email.
 	    body (str): The body of the email.
@@ -638,6 +654,9 @@ def send_gmail_message(credentials: Credentials, to: str, subject: str, body: st
 	    str: A confirmation message or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("gmail", "v1", credentials=credentials)
 		message = MIMEText(body)
 		message['to'] = to
@@ -655,11 +674,10 @@ send_gmail_message.service = "gmail"
 @mcp.tool()
 @log_activity
 @handle_errors
-def modify_gmail_label(credentials: Credentials, message_id: str, add_labels: list = None, remove_labels: list = None) -> str:
+def modify_gmail_label(message_id: str, add_labels: list = None, remove_labels: list = None) -> str:
 	"""Adds or removes labels from a Gmail message.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    message_id (str): The ID of the message to modify.
 	    add_labels (list, optional): A list of label IDs to add. Defaults to None.
 	    remove_labels (list, optional): A list of label IDs to remove. Defaults to None.
@@ -668,6 +686,9 @@ def modify_gmail_label(credentials: Credentials, message_id: str, add_labels: li
 	    str: A confirmation message or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("gmail", "v1", credentials=credentials)
 		body = {}
 		if add_labels:
@@ -689,11 +710,10 @@ modify_gmail_label.service = "gmail"
 @mcp.tool()
 @log_activity
 @handle_errors
-def delete_gmail_message(credentials: Credentials, message_id: str, confirm: bool = False) -> str:
+def delete_gmail_message(message_id: str, confirm: bool = False) -> str:
 	"""Deletes a Gmail message (moves to trash).
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    message_id (str): The ID of the message to delete.
 	    confirm (bool, optional): Confirmation to delete. Defaults to False.
 
@@ -703,6 +723,9 @@ def delete_gmail_message(credentials: Credentials, message_id: str, confirm: boo
 	if not confirm:
 		return "Please confirm that you want to delete this message by calling this function again with confirm=True."
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("gmail", "v1", credentials=credentials)
 		service.users().messages().trash(userId="me", id=message_id).execute()
 		return "Message moved to trash successfully."
@@ -715,11 +738,10 @@ delete_gmail_message.service = "gmail"
 @mcp.tool()
 @log_activity
 @handle_errors
-def create_google_calendar_event(credentials: Credentials, summary: str, start_time: str, end_time: str, attendees: list = None) -> str:
+def create_google_calendar_event(summary: str, start_time: str, end_time: str, attendees: list = None) -> str:
 	"""Creates a new event in Google Calendar.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    summary (str): The summary/title of the event.
 	    start_time (str): The start time of the event in ISO format (e.g., '2024-01-01T10:00:00-07:00').
 	    end_time (str): The end time of the event in ISO format.
@@ -729,6 +751,9 @@ def create_google_calendar_event(credentials: Credentials, summary: str, start_t
 	    str: A confirmation message with a link to the event, or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("calendar", "v3", credentials=credentials)
 		event = {
 			'summary': summary,
@@ -755,11 +780,10 @@ create_google_calendar_event.service = "calendar"
 @mcp.tool()
 @log_activity
 @handle_errors
-def update_google_calendar_event(credentials: Credentials, event_id: str, summary: str = None, start_time: str = None, end_time: str = None, attendees: list = None) -> str:
+def update_google_calendar_event(event_id: str, summary: str = None, start_time: str = None, end_time: str = None, attendees: list = None) -> str:
 	"""Updates an existing event in Google Calendar.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    event_id (str): The ID of the event to update.
 	    summary (str, optional): The new summary/title of the event. Defaults to None.
 	    start_time (str, optional): The new start time of the event in ISO format. Defaults to None.
@@ -770,6 +794,9 @@ def update_google_calendar_event(credentials: Credentials, event_id: str, summar
 	    str: A confirmation message or an error message.
 	"""
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("calendar", "v3", credentials=credentials)
 
 		# Get the existing event to update it
@@ -796,11 +823,10 @@ update_google_calendar_event.service = "calendar"
 @mcp.tool()
 @log_activity
 @handle_errors
-def delete_google_calendar_event(credentials: Credentials, event_id: str, confirm: bool = False) -> str:
+def delete_google_calendar_event(event_id: str, confirm: bool = False) -> str:
 	"""Deletes an event from Google Calendar.
 
 	Args:
-	    credentials (google.oauth2.credentials.Credentials): The user's credentials.
 	    event_id (str): The ID of the event to delete.
 	    confirm (bool, optional): Confirmation to delete. Defaults to False.
 
@@ -810,6 +836,9 @@ def delete_google_calendar_event(credentials: Credentials, event_id: str, confir
 	if not confirm:
 		return "Please confirm that you want to delete this event by calling this function again with confirm=True."
 	try:
+		credentials = get_user_credentials()
+		if not credentials:
+			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("calendar", "v3", credentials=credentials)
 		service.events().delete(calendarId='primary', eventId=event_id).execute()
 		return "Event deleted successfully."
