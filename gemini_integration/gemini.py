@@ -335,7 +335,13 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 				"search_google_contacts",
 			],
 			"drive": ["search_drive"],
-			"gmail": ["search_gmail", "create_gmail_draft"],
+			"gmail": [
+				"send_email",
+				"search_gmail",
+				"get_gmail_message_context",
+				"modify_gmail_label",
+				"delete_gmail_message",
+			],
 			"calendar": ["search_calendar"],
 			"contacts": ["search_google_contacts"],
 		}
