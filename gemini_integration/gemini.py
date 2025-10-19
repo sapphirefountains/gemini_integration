@@ -379,17 +379,15 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 	# If no tools are selected (no mentions, no search), the tool_declarations list will be empty,
 	# and the model will behave like a standard chatbot, which is the desired behavior.
 
-	# 2. Get user credentials if any Google services are mentioned
-	kwargs = {}
-	google_services = ["gmail", "drive", "calendar"]
-	if any(service in mentioned_services for service in google_services):
-		from gemini_integration.utils import get_user_credentials
+	# 2. Check for Google authentication if Google services are mentioned.
+	# We don't need to pass credentials around, as the tools get them directly.
+	google_services_mentioned = any(
+		service in ["google", "gmail", "drive", "calendar", "contacts"] for service in mentioned_services
+	)
+	if google_services_mentioned:
+		from gemini_integration.utils import is_google_integrated
 
-		creds = get_user_credentials()
-		if creds:
-			kwargs["credentials"] = creds
-		else:
-			# Handle case where user is not authenticated with Google
+		if not is_google_integrated():
 			return {
 				"response": "Please connect your Google account to use this feature.",
 				"thoughts": "User is not authenticated with Google.",
@@ -442,10 +440,6 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 
 		tool_name = function_call.name
 		tool_args = {key: value for key, value in function_call.args.items()}
-
-		# Add credentials to args if the tool requires them
-		if "credentials" in kwargs:
-			tool_args["credentials"] = kwargs["credentials"]
 
 		# Execute the tool
 		try:
