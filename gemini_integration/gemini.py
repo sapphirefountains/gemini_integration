@@ -379,10 +379,14 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 	# 3. Set up the model with the available tools
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
+
 	# The MCP's tool registry is not public, so we access the private attribute.
-	# This is a known and accepted pattern in this project.
-	gemini_tools = list(mcp._tool_registry.values())
-	model_instance = genai.GenerativeModel(model_name, tools=gemini_tools)
+	# The Gemini API expects a list of tool *declarations*, without the 'fn' key.
+	tool_declarations = []
+	for tool in mcp._tool_registry.values():
+		tool_declarations.append({k: v for k, v in tool.items() if k != 'fn'})
+
+	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
 	chat = model_instance.start_chat()
 
 	# 4. Send the prompt and handle the response, including any tool calls
