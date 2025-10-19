@@ -64,12 +64,13 @@ get_doc_context.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> str:
+def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) -> str:
 	"""Searches for documents in ERPNext with a query, returning a formatted string of results.
+	If no doctype is specified, it searches across a default set of DocTypes.
 
 	Args:
-	    doctype (str): The DocType to search within.
 	    query (str): The search query.
+	    doctype (str, optional): The DocType to search within. Defaults to None.
 	    limit (int, optional): The maximum number of documents to return.
 	        Defaults to 5.
 
@@ -77,83 +78,101 @@ def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> str:
 	    str: A formatted string of search results, or an error message.
 	"""
 	try:
-		meta = frappe.get_meta(doctype)
+		# If a specific doctype is provided, search only that. Otherwise, search a default list
+		# of common doctypes to find the most relevant document.
+		default_doctypes = [
+			"Project",
+			"Customer",
+			"Supplier",
+			"Item",
+			"Sales Order",
+			"Purchase Order",
+			"Lead",
+			"Opportunity",
+		]
+		doctypes_to_search = [doctype] if doctype else default_doctypes
+		all_scored_docs = []
 
-		# Define weights for different field types
-		title_field = meta.get_title_field()
-		search_fields = meta.get_search_fields()
+		for dt in doctypes_to_search:
+			try:
+				meta = frappe.get_meta(dt)
+			except frappe.DoesNotExistError:
+				# This can happen if a default doctype is not present in the user's instance.
+				# We can silently ignore it and continue.
+				continue
 
-		field_weights = {
-			"name": 3.0,
-		}
-		if title_field:
-			field_weights[title_field] = 3.0
+			title_field = meta.get_title_field()
+			search_fields = meta.get_search_fields()
+			field_weights = {"name": 3.0}
+			if title_field:
+				field_weights[title_field] = 3.0
+			for f in search_fields:
+				if f not in field_weights:
+					field_weights[f] = 1.5
 
-		for f in search_fields:
-			if f not in field_weights:
-				field_weights[f] = 1.5
+			fields_to_fetch = list(field_weights.keys())
+			for df in meta.fields:
+				if (
+					df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]
+					and df.fieldname not in fields_to_fetch
+				):
+					fields_to_fetch.append(df.fieldname)
 
-		# Get all text-like fields
-		fields_to_fetch = list(field_weights.keys())
-		for df in meta.fields:
-			if (
-				df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]
-				and df.fieldname not in fields_to_fetch
-			):
-				fields_to_fetch.append(df.fieldname)
+			all_docs = frappe.get_all(dt, fields=fields_to_fetch)
 
-		all_docs = frappe.get_all(doctype, fields=fields_to_fetch)
-
-		scored_docs = []
-		for doc in all_docs:
-			total_score = 0
-
-			# Use token_set_ratio for better matching of unordered words
-			full_text = " ".join([str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights])
-			total_score += fuzz.token_set_ratio(query, full_text)
-
-			# Apply weighted scores for important fields
-			for field, weight in field_weights.items():
-				field_value = str(doc.get(field, ""))
-				if field_value:
-					total_score += fuzz.token_set_ratio(query, field_value) * weight
-
-			# Factor in user feedback for "learning"
-			feedback_score = frappe.db.sql(
-				"""
-                SELECT SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END)
-                FROM `tabGemini Search Feedback`
-                WHERE doctype_name = %s AND document_name = %s
-            """,
-				(doctype, doc.name),
-				as_list=True,
-			)
-
-			if feedback_score and feedback_score[0][0]:
-				total_score += feedback_score[0][0] * 10  # Add a significant bonus/penalty
-
-			if total_score > 0:
-				label = (title_field and doc.get(title_field)) or doc.name
-				scored_docs.append(
-					{"name": doc.name, "doctype": doctype, "score": total_score, "label": label}
+			for doc in all_docs:
+				total_score = 0
+				full_text = " ".join(
+					[str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights]
 				)
+				total_score += fuzz.token_set_ratio(query, full_text)
 
-		# Sort by score descending
-		sorted_docs = sorted(scored_docs, key=lambda x: x["score"], reverse=True)
+				for field, weight in field_weights.items():
+					field_value = str(doc.get(field, ""))
+					if field_value:
+						total_score += fuzz.token_set_ratio(query, field_value) * weight
 
-		# Format the results as a string
+				feedback_score = frappe.db.sql(
+					"""
+                    SELECT SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END)
+                    FROM `tabGemini Search Feedback`
+                    WHERE doctype_name = %s AND document_name = %s
+                """,
+					(dt, doc.name),
+					as_list=True,
+				)
+				if feedback_score and feedback_score[0][0]:
+					total_score += feedback_score[0][0] * 10
+
+				# Add a threshold to only include reasonably confident matches
+				if total_score > 70:
+					label = (title_field and doc.get(title_field)) or doc.name
+					all_scored_docs.append(
+						{"name": doc.name, "doctype": dt, "score": total_score, "label": label}
+					)
+
+		# Sort all collected documents by score
+		sorted_docs = sorted(all_scored_docs, key=lambda x: x["score"], reverse=True)
+
 		if not sorted_docs:
-			return f"No documents of type '{doctype}' found matching your query '{query}'."
+			search_scope = f"in DocType '{doctype}'" if doctype else "across the system"
+			return f"No documents {search_scope} found matching your query '{query}'."
 
-		results_string = f"Found {len(sorted_docs)} documents of type '{doctype}' matching your query '{query}':\n"
+		# Format the results string, now including the DocType for clarity
+		results_string = f"Found {len(sorted_docs)} documents matching your query '{query}':\n"
 		for doc in sorted_docs[:limit]:
-			results_string += f"- {doc['label']} (ID: {doc['name']}, Score: {doc['score']:.2f})\n"
+			results_string += (
+				f"- {doc['label']} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
+			)
 
 		return results_string
 
 	except Exception as e:
-		frappe.log_error(f"Error searching ERPNext documents: {e!s}")
-		return "An error occurred while searching for documents."
+		frappe.log_error(
+			message=f"Error in search_erpnext_documents: {frappe.get_traceback()}",
+			title="Gemini Search Error",
+		)
+		return "An error occurred while searching for documents. Please check the Error Log for details."
 
 search_erpnext_documents.service = "erpnext"
 
