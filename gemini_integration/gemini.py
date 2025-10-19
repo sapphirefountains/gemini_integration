@@ -378,7 +378,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 			}
 
 	# 3. Execute the prompt using the MCP server
-	response = mcp.run(prompt, **kwargs)
+	response = mcp.execute(prompt, **kwargs)
 
 	# 5. Save the conversation
 	conversation_history.append({"role": "user", "text": prompt})
