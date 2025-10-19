@@ -309,14 +309,14 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 		# Send the tool's result back to the model
 		response = chat.send_message(
-			[
-				{
-					"function_response": {
-						"name": tool_name,
-						"response": {"result": tool_result},
-					}
-				}
-			]
+			content=genai.types.Content(
+				parts=[
+					genai.types.Part.from_function_response(
+						name=tool_name,
+						response={"contents": tool_result},
+					)
+				]
+			)
 		)
 
 	# 5. Extract the final text response and thoughts
