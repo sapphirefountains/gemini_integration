@@ -309,11 +309,13 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 		# Send the tool's result back to the model
 		response = chat.send_message(
-			content=genai.types.Content(
+			genai.Content(
 				parts=[
-					genai.types.Part.from_function_response(
-						name=tool_name,
-						response={"contents": tool_result},
+					genai.Part(
+						function_response=genai.types.FunctionResponse(
+							name=tool_name,
+							response={"result": tool_result},
+						)
 					)
 				]
 			)
