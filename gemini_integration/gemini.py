@@ -381,10 +381,12 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	# The MCP's tool registry is not public, so we access the private attribute.
-	# The Gemini API expects a list of tool *declarations*, without the 'fn' key.
+	# The Gemini API expects a list of tool *declarations*, without the 'fn' or 'output_schema' keys.
 	tool_declarations = []
 	for tool in mcp._tool_registry.values():
-		declaration = {k: v for k, v in tool.items() if k != "fn"}
+		# Sanitize the declaration by removing keys that are not part of the Gemini API spec.
+		declaration = {k: v for k, v in tool.items() if k not in ["fn", "output_schema"]}
+		# The Gemini API expects 'parameters' instead of 'input_schema'.
 		if "input_schema" in declaration:
 			declaration["parameters"] = declaration.pop("input_schema")
 		tool_declarations.append(declaration)
