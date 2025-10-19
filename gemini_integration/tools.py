@@ -64,8 +64,8 @@ get_doc_context.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list[dict]:
-	"""Searches for documents in ERPNext with a query, returning a scored and ranked list.
+def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> str:
+	"""Searches for documents in ERPNext with a query, returning a formatted string of results.
 
 	Args:
 	    doctype (str): The DocType to search within.
@@ -74,7 +74,7 @@ def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list[d
 	        Defaults to 5.
 
 	Returns:
-	    list[dict]: A list of scored and ranked documents.
+	    str: A formatted string of search results, or an error message.
 	"""
 	try:
 		meta = frappe.get_meta(doctype)
@@ -141,26 +141,21 @@ def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list[d
 		# Sort by score descending
 		sorted_docs = sorted(scored_docs, key=lambda x: x["score"], reverse=True)
 
-		return sorted_docs[:limit]
+		# Format the results as a string
+		if not sorted_docs:
+			return f"No documents of type '{doctype}' found matching your query '{query}'."
+
+		results_string = f"Found {len(sorted_docs)} documents of type '{doctype}' matching your query '{query}':\n"
+		for doc in sorted_docs[:limit]:
+			results_string += f"- {doc['label']} (ID: {doc['name']}, Score: {doc['score']:.2f})\n"
+
+		return results_string
 
 	except Exception as e:
 		frappe.log_error(f"Error searching ERPNext documents: {e!s}")
-		return []
+		return "An error occurred while searching for documents."
 
-search_erpnext_documents.output_schema = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "doctype": {"type": "string"},
-            "score": {"type": "number"},
-            "label": {"type": "string"},
-        },
-    },
-}
 search_erpnext_documents.service = "erpnext"
-
 
 @mcp.tool()
 @log_activity
