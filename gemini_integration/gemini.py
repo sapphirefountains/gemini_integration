@@ -418,10 +418,51 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 	else:
 		model_instance = genai.GenerativeModel(model_name, system_instruction=system_instruction)
 
+	# Find the most recent tool context in the history, if any.
+	latest_context = None
+	for entry in reversed(conversation_history):
+		if entry.get("role") == "tool_context":
+			# We'll format this into a string to inject into the system prompt.
+			try:
+				# Check if the content is a string and try to load it as JSON
+				content = entry.get("content")
+				if isinstance(content, str):
+					context_data = json.loads(content)
+				else:
+					context_data = content # Assume it's already a dict/list
+
+				# We only care about the context if a specific document was found.
+				# This is indicated by the presence of a 'doc' key.
+				if isinstance(context_data, dict) and "doc" in context_data:
+					latest_context = json.dumps(context_data["doc"], indent=2)
+					break # Stop after finding the most recent relevant context
+			except (json.JSONDecodeError, TypeError):
+				# Ignore entries with malformed content.
+				continue
+
+
+	# If we found context, we dynamically add it to the system instruction.
+	if latest_context:
+		context_instruction = f"""
+---
+HERE IS THE CONTEXT FOR THE CURRENT CONVERSATION.
+A tool was previously run and returned the following data about a specific document.
+You MUST use this data to answer the user's follow-up questions about this document.
+If the user asks for information that is clearly not in this data, you may use your tools again to find more specific details related to this document.
+
+CONTEXT:
+{latest_context}
+---
+"""
+		system_instruction += context_instruction
+
+
 	# The Gemini API expects a specific format for conversation history.
-	# We need to transform our stored history to match this format.
+	# We filter out our internal 'tool_context' messages before sending.
 	gemini_history = []
 	for entry in conversation_history:
+		if entry.get("role") == "tool_context":
+			continue # Do not send internal context to the model as chat history
 		# The role must be 'user' or 'model'. Our doctype uses 'gemini'.
 		role = "model" if entry.get("role") == "gemini" else "user"
 		gemini_history.append({"role": role, "parts": [entry.get("text")]})
@@ -435,7 +476,6 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 	tool_calls_log = []
 	while True:
 		# Check if the model's response contains a function call.
-		# This check is more robust and avoids potential IndexErrors.
 		function_call = None
 		if (
 			response.candidates
@@ -445,48 +485,42 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 			for part in response.candidates[0].content.parts:
 				if part.function_call:
 					function_call = part.function_call
-					break  # Handle the first function call found
+					break
 
 		if not function_call:
-			# If no function call is found, this is the final response.
 			break
 
-		# Log the raw function call from the model for debugging
-		frappe.log_error(
-			message=str(function_call),
-			title="Gemini Raw Function Call",
-		)
-
+		frappe.log_error(message=str(function_call), title="Gemini Raw Function Call")
 		tool_name = function_call.name
 		tool_args = {key: value for key, value in function_call.args.items()}
 
-		# Execute the tool
 		try:
 			tool_function = mcp._tool_registry[tool_name]["fn"]
 			tool_result = tool_function(**tool_args)
+
+			# --- CONTEXT RETENTION MODIFICATION ---
+			# If the tool was search_erpnext_documents, we save its result to the
+			# conversation history to ground future follow-up questions.
+			if tool_name == "search_erpnext_documents":
+				conversation_history.append({"role": "tool_context", "content": tool_result})
+			# --- END MODIFICATION ---
+
 		except Exception:
 			frappe.log_error(
-				message=frappe.get_traceback(),
-				title=f"Error executing tool: {tool_name}",
+				message=frappe.get_traceback(), title=f"Error executing tool: {tool_name}"
 			)
 			frappe.throw(
 				f"An error occurred while executing the tool: {tool_name}. Please check the Error Log for details."
 			)
 
-		# Store the tool call details for eventual logging
 		tool_calls_log.append(
 			{"tool": tool_name, "arguments": tool_args, "result": tool_result}
 		)
 
-		# Send the tool's result back to the model
 		function_response_payload = {
-			"function_response": {
-				"name": tool_name,
-				"response": {"contents": tool_result},
-			}
+			"function_response": {"name": tool_name, "response": {"contents": tool_result}}
 		}
 
-		# Log the response being sent back to the model for debugging
 		frappe.log_error(
 			message=json.dumps(function_response_payload, indent=2, default=str),
 			title="Gemini Function Response to Model",
