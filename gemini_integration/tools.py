@@ -129,7 +129,54 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	    dict: A dictionary containing the search results, structured for programmatic use.
 	"""
 	try:
-		# Fix: Ensure limit is an integer for slicing
+		# --- Start: Prioritized Direct Document ID Lookup ---
+		# If a query looks like a specific document ID, try to fetch it directly first.
+		doctypes_for_direct_check = (
+			[doctype]
+			if doctype
+			else [
+				"Project",
+				"Customer",
+				"Supplier",
+				"Item",
+				"Sales Order",
+				"Purchase Order",
+				"Lead",
+				"Opportunity",
+				"Task",
+				"Issue",
+				"Quotation",
+				"Sales Invoice",
+			]
+		)
+
+		for dt in doctypes_for_direct_check:
+			try:
+				if frappe.db.exists(dt, query):
+					# If found, retrieve the full document and return it as a confident match.
+					doc = frappe.get_doc(dt, query)
+					doc_dict = doc.as_dict()
+					meta = frappe.get_meta(dt)
+					title_field = meta.get_title_field()
+					label = (title_field and doc.get(title_field)) or doc.name
+
+					context = f"Found an exact match for '{query}': {label} (ID: {doc.name}, Type: {dt}).\n\nFull details:\n"
+					for field, value in doc_dict.items():
+						if value:
+							if isinstance(value, list):
+								context += f"- {field}: (Contains a list of {len(value)} items)\n"
+							else:
+								context += f"- {field}: {value}\n"
+					doc_url = get_url_to_form(dt, doc.name)
+					context += f"\nLink: {doc_url}"
+					return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
+			except Exception:
+				# This could fail if the doctype in the default list doesn't exist in the instance.
+				# We can safely ignore it and proceed to the broader search.
+				pass
+		# --- End: Prioritized Direct Document ID Lookup ---
+
+		# If no direct match is found, proceed with the original fuzzy search logic.
 		limit = int(limit)
 
 		# If a specific doctype is provided, search only that. Otherwise, search a default list
