@@ -488,7 +488,10 @@ CONTEXT:
 
 			# The tool now returns a dictionary. We need to extract the string representation
 			# to send back to the model, and the full data to store in our context.
-			tool_result_for_model = tool_result_obj.get("string_representation", "")
+			if isinstance(tool_result_obj, dict):
+				tool_result_for_model = tool_result_obj.get("string_representation", "")
+			else:
+				tool_result_for_model = str(tool_result_obj)
 
 			# --- CONTEXT RETENTION MODIFICATION ---
 			# If the tool found a confident match, save the full document dictionary
