@@ -65,8 +65,8 @@ get_doc_context.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) -> str:
-	"""Searches for documents in ERPNext with a query, returning a formatted string of results.
+def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) -> dict:
+	"""Searches for documents in ERPNext with a query, returning a dictionary of results.
 	If no doctype is specified, it searches across a default set of DocTypes.
 
 	Args:
@@ -76,7 +76,7 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	        Defaults to 5.
 
 	Returns:
-	    str: A formatted string of search results, or an error message.
+	    dict: A dictionary containing the search results, structured for programmatic use.
 	"""
 	try:
 		# Fix: Ensure limit is an integer for slicing
@@ -115,6 +115,19 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					field_weights[f] = 1.5
 
 			fields_to_fetch = list(field_weights.keys())
+			if dt == "Project":
+				project_fields = [
+					"project_name", "project_type", "status", "is_active", "priority",
+					"department", "company", "customer", "project_template", "opportunity",
+					"lead", "sales_order", "project_manager", "expected_start_date",
+					"expected_end_date", "actual_start_date", "actual_end_date",
+					"total_costing_amount", "total_billed_amount", "total_purchase_cost",
+					"total_expense_claim"
+				]
+				for field in project_fields:
+					if frappe.db.has_column(dt, field) and field not in fields_to_fetch:
+						fields_to_fetch.append(field)
+
 			for df in meta.fields:
 				if (
 					df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Text Editor", "Select"]
@@ -161,7 +174,8 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 
 		if not sorted_docs:
 			search_scope = f"in DocType '{doctype}'" if doctype else "across the system"
-			return f"No documents {search_scope} found matching your query '{query}'."
+			string_repr = f"No documents {search_scope} found matching your query '{query}'."
+			return {"type": "no_match", "string_representation": string_repr}
 
 		# If the top match is significantly better than the second, retrieve its full context
 		if len(sorted_docs) == 1 or (
@@ -176,25 +190,28 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					context += f"- {field}: {value}\n"
 			doc_url = get_url_to_form(top_doc_info["doctype"], top_doc_info["name"])
 			context += f"\nLink: {doc_url}"
-			return context
+			return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
 
 		# Otherwise, return a list of top results for disambiguation
 		results_string = (
 			f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
 		)
+		disambiguation_docs = []
 		for doc in sorted_docs[:limit]:
 			results_string += (
 				f"- {doc['label']} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 			)
+			disambiguation_docs.append(doc)
 
-		return results_string
+		return {"type": "disambiguation", "docs": disambiguation_docs, "string_representation": results_string}
 
 	except Exception as e:
 		frappe.log_error(
 			message=f"Error in search_erpnext_documents: {frappe.get_traceback()}",
 			title="Gemini Search Error",
 		)
-		return "An error occurred while searching for documents. Please check the Error Log for details."
+		error_string = "An error occurred while searching for documents. Please check the Error Log for details."
+		return {"type": "error", "string_representation": error_string}
 
 search_erpnext_documents.service = "erpnext"
 
