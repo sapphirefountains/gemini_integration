@@ -319,7 +319,7 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 
 	# 1. Determine which toolsets to use based on @-mentions
 	mentioned_services = re.findall(r"@(\w+)", prompt)
-	if not mentioned_services:
+	if not mentioned_services and not use_google_search:
 		mentioned_services = ["erpnext"]  # Default to ERPNext if no service is mentioned
 
 	# 2. Get user credentials if any Google services are mentioned
