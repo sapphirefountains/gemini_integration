@@ -207,14 +207,18 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 
 	from gemini_integration.mcp import mcp
 
+	# Load the conversation history from the database if a conversation ID is provided.
+	# The Gemini API expects a specific format, so we will transform it later.
 	conversation_history = []
 	if conversation_id:
 		try:
 			conversation_doc = frappe.get_doc("Gemini Conversation", conversation_id)
 			if conversation_doc.conversation:
+				# The conversation is stored as a JSON string.
 				conversation_history = json.loads(conversation_doc.conversation)
 		except frappe.DoesNotExistError:
-			pass
+			# If the conversation ID is invalid, we start a new conversation.
+			conversation_id = None
 
 	# 1. Determine which toolsets to use based on @-mentions
 	mentioned_services = re.findall(r"@(\w+)", prompt)
@@ -274,7 +278,16 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 		tool_declarations.append(declaration)
 
 	model_instance = genai.GenerativeModel(model_name, tools=tool_declarations)
-	chat = model_instance.start_chat()
+
+	# The Gemini API expects a specific format for conversation history.
+	# We need to transform our stored history to match this format.
+	gemini_history = []
+	for entry in conversation_history:
+		# The role must be 'user' or 'model'. Our doctype uses 'gemini'.
+		role = "model" if entry.get("role") == "gemini" else "user"
+		gemini_history.append({"role": role, "parts": [entry.get("text")]})
+
+	chat = model_instance.start_chat(history=gemini_history)
 
 	# 4. Send the prompt and handle the response, including any tool calls
 	response = chat.send_message(prompt)
@@ -341,7 +354,8 @@ def generate_chat_response(prompt, model=None, conversation_id=None):
 	# We will create a placeholder for now.
 	thoughts = "The model generated a response, potentially after using tools."
 
-	# 6. Save the conversation
+	# 6. Save the conversation by appending the latest user prompt and model response
+	# to the history before saving.
 	conversation_history.append({"role": "user", "text": prompt})
 	conversation_history.append({"role": "gemini", "text": final_response_text})
 	conversation_id = save_conversation(conversation_id, prompt, conversation_history)
