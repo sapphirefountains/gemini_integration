@@ -73,7 +73,7 @@ def search_erpnext_documents(doctype: str, query: str, limit: int = 5) -> list[d
 	        Defaults to 5.
 
 	Returns:
-	    list: A list of scored and ranked documents.
+	    list[dict]: A list of scored and ranked documents.
 	"""
 	try:
 		meta = frappe.get_meta(doctype)
@@ -678,8 +678,8 @@ def modify_gmail_label(message_id: str, add_labels: list[str] = None, remove_lab
 
 	Args:
 	    message_id (str): The ID of the message to modify.
-	    add_labels (list, optional): A list of label IDs to add. Defaults to None.
-	    remove_labels (list, optional): A list of label IDs to remove. Defaults to None.
+	    add_labels (list[str], optional): A list of label IDs to add. Defaults to None.
+	    remove_labels (list[str], optional): A list of label IDs to remove. Defaults to None.
 
 	Returns:
 	    str: A confirmation message or an error message.
@@ -744,7 +744,7 @@ def create_google_calendar_event(summary: str, start_time: str, end_time: str, a
 	    summary (str): The summary/title of the event.
 	    start_time (str): The start time of the event in ISO format (e.g., '2024-01-01T10:00:00-07:00').
 	    end_time (str): The end time of the event in ISO format.
-	    attendees (list, optional): A list of attendee email addresses. Defaults to None.
+	    attendees (list[str], optional): A list of attendee email addresses. Defaults to None.
 
 	Returns:
 	    str: A confirmation message with a link to the event, or an error message.
@@ -787,7 +787,7 @@ def update_google_calendar_event(event_id: str, summary: str = None, start_time:
 	    summary (str, optional): The new summary/title of the event. Defaults to None.
 	    start_time (str, optional): The new start time of the event in ISO format. Defaults to None.
 	    end_time (str, optional): The new end time of the event in ISO format. Defaults to None.
-	    attendees (list, optional): The new list of attendee email addresses. Defaults to None.
+	    attendees (list[str], optional): The new list of attendee email addresses. Defaults to None.
 
 	Returns:
 	    str: A confirmation message or an error message.
