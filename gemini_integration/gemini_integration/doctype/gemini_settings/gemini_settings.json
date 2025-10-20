@@ -64,9 +64,9 @@
   },
   {
    "fieldname": "embedding_doctypes",
-   "fieldtype": "Table MultiSelect",
+   "fieldtype": "Table",
    "label": "DocTypes for Embedding",
-   "options": "DocType",
+   "options": "Embedding Doctype",
    "description": "Select the DocTypes that should be indexed for semantic search."
   },
   {
