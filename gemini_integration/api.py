@@ -57,7 +57,7 @@ def generate(prompt, model=None):
 @frappe.whitelist()
 @log_activity
 @handle_errors
-def chat(prompt=None, model=None, conversation_id=None):
+def chat(prompt=None, model=None, conversation_id=None, use_google_search=False):
 	"""Handles chat interactions with the Gemini API.
 
 	Args:
@@ -65,13 +65,34 @@ def chat(prompt=None, model=None, conversation_id=None):
 	    model (str, optional): The model to use for the chat. Defaults to None.
 	    conversation_id (str, optional): The ID of the existing conversation.
 	        Defaults to None.
+	    use_google_search (bool, optional): Whether to enable Google Search for this query.
+	        Defaults to False.
 
 	Returns:
 	    dict: A dictionary containing the chat response and conversation ID.
 	"""
 	if not prompt:
 		frappe.throw("A prompt is required.")
-	return generate_chat_response(prompt, model, conversation_id)
+	return generate_chat_response(prompt, model, conversation_id, use_google_search)
+
+
+@frappe.whitelist()
+def stream_chat(prompt=None, model=None, conversation_id=None, use_google_search=False):
+	"""Handles streaming chat interactions with the Gemini API."""
+	if not prompt:
+		frappe.throw("A prompt is required.")
+
+	frappe.response["type"] = "csv"
+	frappe.response["doctype"] = "Gemini Chat"
+	frappe.response["filename"] = "response.txt"
+
+	def streamer():
+		for chunk in generate_chat_response(
+			prompt, model, conversation_id, use_google_search, stream=True
+		):
+			yield chunk
+
+	frappe.response["result"] = streamer()
 
 
 @frappe.whitelist()
