@@ -4,6 +4,7 @@ import json
 import logging
 import traceback
 import re
+import ast
 from datetime import datetime, timedelta
 from io import BytesIO
 from email.mime.text import MIMEText
@@ -164,6 +165,25 @@ def fetch_erpnext_data(doctype: str, filters: dict, fields: list[str]) -> str:
 	Returns:
 		str: A JSON string containing the list of matching records or an error message.
 	"""
+	# --- Argument Sanitization ---
+	# LLM may pass a string representation of a list, so we safely parse it.
+	if isinstance(fields, str):
+		try:
+			fields = ast.literal_eval(fields)
+			if not isinstance(fields, list):
+				fields = [fields]
+		except (ValueError, SyntaxError):
+			return json.dumps({"error": f"Invalid format for 'fields'. Expected a list of strings."})
+
+	# The Gemini API can pass a special MapComposite object instead of a dict.
+	# We need to convert it to a standard dictionary for Frappe.
+	if filters and not isinstance(filters, dict):
+		try:
+			filters = dict(filters)
+		except (TypeError, ValueError):
+			return json.dumps({"error": f"Invalid format for 'filters'. Expected a dictionary."})
+
+
 	# --- Safeguard 1: DocType Allowlist ---
 	try:
 		settings = frappe.get_single("Gemini Settings")
