@@ -45,7 +45,7 @@ app_include_js = [
 # webform_include_css = {"doctype": "public/css/doctype.css"}
 
 # include js in page
-page_js = {"gemini-chat" : "/assets/gemini_integration/js/gemini_chat_ui.js"}
+# page_js = {"gemini-chat" : "public/js/gemini_chat.js"}
 
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
