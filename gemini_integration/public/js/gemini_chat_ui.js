@@ -22,18 +22,15 @@ function createGeminiChatUI(parentElement, options = {}) {
 			--gemini-border-color: #e0e2e6;
             font-family: var(--gemini-font-family);
             display: flex; flex-grow: 1; position: relative; overflow: hidden; background-color: var(--gemini-bg-color);
+            height: 100%;
         }
-        .gemini-chat-page .page-content {
-            height: calc(100vh - var(--page-head-height) - var(--margin-top) - var(--margin-bottom) - 2px);
-            display: flex;
-            flex-direction: column;
-        }
+        .gemini-chat-page .page-content,
         .gemini-chat-page .page-content .layout-main-section {
-            flex-grow: 1;
             display: flex;
             flex-direction: column;
-            padding-top: 0;
-            padding-bottom: 0;
+            flex-grow: 1;
+            padding: 0 !important;
+            height: 100%;
         }
         #gemini-chat-container .conversations-sidebar { width: 260px; border-right: 1px solid var(--gemini-border-color); padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; background-color: var(--gemini-sidebar-bg); }
         #gemini-chat-container .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
@@ -44,11 +41,11 @@ function createGeminiChatUI(parentElement, options = {}) {
         #gemini-chat-container #conversations-list .list-group-item.active { background-color: #d2e3fc; font-weight: 500; }
         #gemini-chat-container .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; }
 		#gemini-chat-container .page-header { padding: 15px 20px 0; display: none; }
-        #gemini-chat-container .chat-history { flex-grow: 1; overflow-y: auto; padding: 20px; }
+        #gemini-chat-container .chat-history { flex-grow: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
 		#gemini-chat-container .chat-bubble-wrapper { display: flex; margin-bottom: 20px; }
 		#gemini-chat-container .chat-bubble-wrapper.user { justify-content: flex-end; }
 		#gemini-chat-container .chat-bubble-wrapper.gemini { justify-content: flex-start; }
-		#gemini-chat-container .avatar { width: 32px; height: 32px; border-radius: 50%; margin-right: 15px; background-color: #ccc; display: flex; align-items: center; justify-content: center; font-weight: bold; overflow: hidden; }
+		#gemini-chat-container .avatar { width: 32px; height: 32px; border-radius: 50%; margin-right: 15px; background-color: #ccc; display: flex; align-items: center; justify-content: center; font-weight: bold; overflow: hidden; flex-shrink: 0; }
 		#gemini-chat-container .avatar img { width: 100%; height: 100%; object-fit: cover; }
 		#gemini-chat-container .chat-bubble-wrapper.user .avatar { margin-left: 15px; margin-right: 0; }
         #gemini-chat-container .chat-bubble { max-width: 80%; padding: 15px 20px; border-radius: 18px; word-wrap: break-word; line-height: 1.6; }
@@ -56,11 +53,11 @@ function createGeminiChatUI(parentElement, options = {}) {
         #gemini-chat-container .chat-bubble.gemini { background-color: var(--gemini-model-bubble); color: var(--gemini-text-color); border-bottom-left-radius: 4px; }
         #gemini-chat-container .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid var(--gemini-border-color); color: #4b5563; width: 100%; max-width: 100%; margin: 15px 0; padding: 15px; }
 		#gemini-chat-container .chat-bubble .generated-image { max-width: 100%; border-radius: 10px; margin-top: 10px; }
-		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; margin-bottom: 30px; text-align: center; }
+		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; margin-bottom: 30px; text-align: center; margin-top: auto; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
 		#gemini-chat-container .greeting-subtitle { font-size: 16px; color: var(--gemini-light-text); }
-        #gemini-chat-container .context-indicator { text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: -20px 20px 20px; border-radius: 0 0 12px 12px; }
-        #gemini-chat-container .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin-bottom: 20px; }
+        #gemini-chat-container .context-indicator { text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 20px; border-radius: 12px; }
+        #gemini-chat-container .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin: 0 20px 20px; }
         #gemini-chat-container .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		#gemini-chat-container .chat-input-area textarea:focus { box-shadow: none; }
 		#gemini-chat-container .send-btn { border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -80,8 +77,8 @@ function createGeminiChatUI(parentElement, options = {}) {
             #gemini-chat-container .page-header { display: block; }
             #gemini-chat-container .conversations-sidebar { position: absolute; top: 0; left: 0; height: 100%; z-index: 10; background: var(--gemini-sidebar-bg); transform: translateX(-100%); box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
             #gemini-chat-container.sidebar-open .conversations-sidebar { transform: translateX(0); }
-            #gemini-chat-container .gemini-chat-wrapper { padding: 0 15px; }
-			#gemini-chat-container .chat-input-area { margin-bottom: 15px; }
+            #gemini-chat-container .gemini-chat-wrapper { padding: 0; }
+			#gemini-chat-container .chat-input-area { margin: 0 15px 15px; }
         }
     `;
     $("<style>").text(styles).appendTo("head");
@@ -123,10 +120,13 @@ function createGeminiChatUI(parentElement, options = {}) {
                     </button>
 				</div>
                 <div class="chat-history"></div>
-                <div class="chat-input-area">
-                    <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
-                    <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
-					<div class="spinner-container" style="display: none;"><div class="spinner"></div></div>
+                <div class="chat-input-wrapper">
+                    <div class="context-indicator" style="display: none;"></div>
+                    <div class="chat-input-area">
+                        <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
+                        <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
+                        <div class="spinner-container" style="display: none;"><div class="spinner"></div></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -245,27 +245,24 @@ function createGeminiChatUI(parentElement, options = {}) {
         }
     });
 
-    const send_message = (prompt) => {
-        if (!prompt) {
-            prompt = chat_input.val().trim();
-            if (!prompt) return;
-        }
+    const send_message = (prompt_text) => {
+        const prompt = prompt_text || chat_input.val().trim();
+        if (!prompt) return;
+
         add_to_history("user", prompt);
-        chat_input.val("");
-        chat_input.prop("disabled", true);
+        chat_input.val("").trigger("input"); // Clear and trigger input to resize
         send_btn.hide();
         spinner_container.show();
+        chat_input.prop("disabled", true);
+
         streaming_bubble = add_to_history("gemini", "");
         full_response = "";
 
-        // Prepare context to be sent to the backend
         let api_context = null;
         if (page_context) {
             api_context = `The user is viewing the '${page_context.doctype}' document titled '${page_context.docname}'.`;
-            // Clear the context after the first message
-            page_context = null;
-            // Also remove the visual indicator
-            container.find(".context-indicator").remove();
+            page_context = null; // Clear context after first use
+            container.find(".context-indicator").hide();
         }
 
         frappe.call({
@@ -278,16 +275,19 @@ function createGeminiChatUI(parentElement, options = {}) {
                 context: api_context,
             },
             error: function (r) {
-                chat_input.prop("disabled", false);
                 spinner_container.hide();
                 send_btn.show();
-                add_to_history("gemini", `Error: ${r.message}`);
+                chat_input.prop("disabled", false);
+                streaming_bubble.html(`<div class="alert alert-danger">${r.message || "An unknown error occurred."}</div>`);
             },
         });
     };
 
+
     const add_to_history = (role, text) => {
-        chat_history.find(".greeting-card").remove();
+        if (chat_history.find(".greeting-card").length > 0) {
+            chat_history.empty();
+        }
         let bubble_wrapper = $(`<div class="chat-bubble-wrapper ${role}"></div>`);
         let avatar = $(`<div class="avatar"></div>`);
         let bubble = $(`<div class="chat-bubble ${role}"></div>`);
@@ -354,8 +354,8 @@ function createGeminiChatUI(parentElement, options = {}) {
     const show_greeting = () => {
         chat_history.html(`<div class="greeting-card"><h1 class="greeting-title">Hello, ${frappe.session.user_fullname}</h1><p class="greeting-subtitle">How can I help you today?</p></div>`);
         if (page_context) {
-            const indicator = $(`<div class="context-indicator">Asking about ${page_context.doctype} ${page_context.docname}</div>`);
-            chat_history.after(indicator);
+            const indicator = container.find(".context-indicator");
+            indicator.text(`Asking about ${page_context.doctype} ${page_context.docname}`).show();
         }
     };
 
@@ -374,8 +374,4 @@ function createGeminiChatUI(parentElement, options = {}) {
 
     load_conversations();
     show_greeting();
-
-    // Make the send_message function accessible from outside
-    container.data("send_message", send_message);
 }
-
