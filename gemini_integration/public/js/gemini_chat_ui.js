@@ -343,7 +343,12 @@ function createGeminiChatUI(parentElement, options = {}) {
     };
 
     const show_greeting = () => {
-        chat_history.html(`<div class="greeting-card"><h1 class="greeting-title">Hello, ${frappe.session.user_fullname}</h1><p class="greeting-subtitle">How can I help you today?</p></div>`);
+        const greeting_subtitle = page_context
+            ? `How can I help you with ${page_context.doctype} ${page_context.docname}?`
+            : "How can I help you today?";
+
+        chat_history.html(`<div class="greeting-card"><h1 class="greeting-title">Hello, ${frappe.session.user_fullname}</h1><p class="greeting-subtitle">${greeting_subtitle}</p></div>`);
+
         if (page_context) {
             const indicator = container.find(".context-indicator");
             indicator.text(`Asking about ${page_context.doctype} ${page_context.docname}`).show();
