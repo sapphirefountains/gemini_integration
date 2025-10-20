@@ -19,8 +19,7 @@ from thefuzz import fuzz, process
 import numpy as np
 
 from gemini_integration.mcp import mcp
-from gemini_integration.utils import get_user_credentials, handle_errors, log_activity
-from gemini_integration.gemini import generate_embedding
+from gemini_integration.utils import get_user_credentials, handle_errors, log_activity, generate_embedding
 
 
 def cosine_similarity(v1, v2):

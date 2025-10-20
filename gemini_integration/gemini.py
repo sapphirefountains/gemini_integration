@@ -118,30 +118,9 @@ from gemini_integration.tools import (
 	search_gmail,
 	search_google_contacts,
 )
-from gemini_integration.utils import get_google_settings
+from gemini_integration.utils import configure_gemini, generate_embedding
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
-
-
-@log_activity
-@handle_errors
-def configure_gemini():
-	"""Configures the Google Generative AI client with the API key from settings.
-
-	Returns:
-	    bool: True if configuration is successful, None otherwise.
-	"""
-	settings = frappe.get_single("Gemini Settings")
-	api_key = settings.get_password("api_key")
-	if not api_key:
-		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
-		return None
-	try:
-		genai.configure(api_key=api_key)
-		return True
-	except Exception as e:
-		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
-		return None
 
 
 @log_activity
@@ -760,29 +739,6 @@ def _get_text_chunks(text, chunk_size=1000, overlap=100):
 	for i in range(0, len(tokens), chunk_size - overlap):
 		chunks.append(" ".join(tokens[i : i + chunk_size]))
 	return chunks
-
-
-def generate_embedding(text):
-	"""
-	Generates an embedding for a given text using the Gemini API.
-	"""
-	if not configure_gemini():
-		# This will be logged by the background job, so no need to throw
-		return None
-	try:
-		result = genai.embed_content(
-			model="models/embedding-001",
-			content=text,
-			task_type="RETRIEVAL_DOCUMENT",
-			title="ERPNext Document",
-		)
-		return result["embedding"]
-	except Exception as e:
-		frappe.log_error(
-			message=f"Failed to generate embedding: {e!s}\n{frappe.get_traceback()}",
-			title="Gemini Embedding Generation Error",
-		)
-		return None
 
 
 def update_embedding(doc, method):
