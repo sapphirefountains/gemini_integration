@@ -2,6 +2,7 @@ import functools
 import traceback
 
 import frappe
+import google.generativeai as genai
 from frappe.utils import get_site_url
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -251,3 +252,45 @@ def process_google_callback(code, state, error):
            </div>""",
 		indicator_color="green",
 	)
+
+
+def configure_gemini():
+	"""Configures the Google Generative AI client with the API key from settings.
+
+	Returns:
+	    bool: True if configuration is successful, None otherwise.
+	"""
+	settings = frappe.get_single("Gemini Settings")
+	api_key = settings.get_password("api_key")
+	if not api_key:
+		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
+		return None
+	try:
+		genai.configure(api_key=api_key)
+		return True
+	except Exception as e:
+		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
+		return None
+
+
+def generate_embedding(text):
+	"""
+	Generates an embedding for a given text using the Gemini API.
+	"""
+	if not configure_gemini():
+		# This will be logged by the background job, so no need to throw
+		return None
+	try:
+		result = genai.embed_content(
+			model="models/embedding-001",
+			content=text,
+			task_type="RETRIEVAL_DOCUMENT",
+			title="ERPNext Document",
+		)
+		return result["embedding"]
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to generate embedding: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini Embedding Generation Error",
+		)
+		return None
