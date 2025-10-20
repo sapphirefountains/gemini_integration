@@ -750,6 +750,150 @@ def analyze_risks(project_id):
 	except json.JSONDecodeError:
 		return {"error": "Failed to parse a JSON response from the AI. Please try again."}
 
+def generate_embedding(text):
+	"""
+	Generates an embedding for a given text using the Gemini API.
+	"""
+	if not configure_gemini():
+		# This will be logged by the background job, so no need to throw
+		return None
+	try:
+		result = genai.embed_content(
+			model="models/embedding-001",
+			content=text,
+			task_type="RETRIEVAL_DOCUMENT",
+			title="ERPNext Document"
+		)
+		return result['embedding']
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to generate embedding: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini Embedding Generation Error",
+		)
+		return None
+
+def update_embedding(doc, method):
+	"""
+	Creates or updates the embedding for a document. This will be called by the on_update hook.
+	"""
+	# This function will now just enqueue the background job
+	try:
+		# Check if an embedding document already exists
+		embedding_doc_name = frappe.db.get_value(
+			"Gemini Embedding",
+			{"ref_doctype": doc.doctype, "ref_docname": doc.name},
+			"name"
+		)
+
+		if embedding_doc_name:
+			embedding_doc = frappe.get_doc("Gemini Embedding", embedding_doc_name)
+			if embedding_doc.status != "Pending":
+				embedding_doc.status = "Pending"
+				embedding_doc.save(ignore_permissions=True)
+		else:
+			# Create a new embedding document with "Pending" status
+			embedding_doc = frappe.new_doc("Gemini Embedding")
+			embedding_doc.ref_doctype = doc.doctype
+			embedding_doc.ref_docname = doc.name
+			embedding_doc.status = "Pending"
+			embedding_doc.insert(ignore_permissions=True)
+
+		frappe.enqueue(
+			"gemini_integration.gemini.generate_embedding_in_background",
+			doctype=doc.doctype,
+			docname=doc.name
+		)
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to enqueue embedding generation for {doc.doctype} {doc.name}: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini Embedding Enqueue Error",
+		)
+
+def delete_embedding(doc, method):
+	"""
+	Deletes the embedding for a document when it is deleted.
+	"""
+	# This function will now just enqueue the background job
+	frappe.enqueue(
+		"gemini_integration.gemini.delete_embedding_in_background",
+		doctype=doc.doctype,
+		docname=doc.name
+	)
+
+def generate_embedding_in_background(doctype, docname):
+	"""
+	Generates and saves an embedding for a specific document in the background.
+
+	Args:
+		doctype (str): The DocType of the document.
+		docname (str): The name/ID of the document.
+	"""
+	embedding_doc = None
+	try:
+		# 1. Find the corresponding Gemini Embedding document
+		embedding_doc_name = frappe.db.get_value(
+			"Gemini Embedding",
+			{"ref_doctype": doctype, "ref_docname": docname},
+			"name"
+		)
+		if not embedding_doc_name:
+			# This should not happen if the hook creates it first, but as a fallback
+			embedding_doc = frappe.new_doc("Gemini Embedding")
+			embedding_doc.ref_doctype = doctype
+			embedding_doc.ref_docname = docname
+			embedding_doc.status = "Pending"
+			embedding_doc.insert(ignore_permissions=True)
+		else:
+			embedding_doc = frappe.get_doc("Gemini Embedding", embedding_doc_name)
+
+		# 2. Get the content of the source document
+		source_doc = frappe.get_doc(doctype, docname)
+		# Create a simple text representation of the document for embedding
+		# This can be improved to be more sophisticated
+		content_to_embed = f"Document: {docname}\n"
+		for field, value in source_doc.as_dict().items():
+			if value and not isinstance(value, (list, dict, type(None))):
+				 content_to_embed += f"{frappe.unscrub(field)}: {value}\n"
+
+
+		# 3. Generate the embedding
+		# 3. Generate the embedding
+		embedding_vector = generate_embedding(content_to_embed)
+
+		# 4. Save the embedding and update the status
+		if embedding_vector:
+			embedding_doc.embedding = json.dumps(embedding_vector)
+			embedding_doc.status = "Completed"
+		else:
+			embedding_doc.status = "Error"
+		embedding_doc.save(ignore_permissions=True)
+
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to generate embedding for {doctype} {docname}: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini Embedding Generation Error",
+		)
+		if embedding_doc:
+			embedding_doc.status = "Error"
+			embedding_doc.save(ignore_permissions=True)
+
+def delete_embedding_in_background(doctype, docname):
+	"""
+	Deletes the embedding for a document in the background.
+	"""
+	try:
+		embedding_doc_name = frappe.db.get_value(
+			"Gemini Embedding",
+			{"ref_doctype": doctype, "ref_docname": docname},
+			"name"
+		)
+		if embedding_doc_name:
+			frappe.delete_doc("Gemini Embedding", embedding_doc_name, ignore_permissions=True)
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to delete embedding for {doctype} {docname}: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini Embedding Deletion Error",
+		)
 
 def backfill_embeddings():
 	"""
@@ -773,7 +917,6 @@ def backfill_embeddings():
 				try:
 					# This will trigger the on_update hook in hooks.py to generate the embedding
 					frappe.get_doc(doctype, doc.name).save(ignore_permissions=True)
-					frappe.db.commit()
 					frappe.log_info(f"Successfully processed {doctype} - {doc.name}", "Gemini Embedding Backfill")
 				except Exception as e:
 					frappe.log_error(

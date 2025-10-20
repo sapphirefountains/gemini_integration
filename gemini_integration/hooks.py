@@ -136,14 +136,28 @@ app_license = "mit"
 # Document Events
 # ---------------
 # Hook on document methods and events
+import frappe
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+def get_doctypes_for_embedding():
+    """
+    Fetches the list of DocTypes configured for embedding from Gemini Settings.
+    """
+    try:
+        if frappe.db.exists("DocType", "Gemini Settings"):
+            settings = frappe.get_single("Gemini Settings")
+            return [link.doctype_name for link in settings.get("embedding_doctypes", [])]
+    except Exception:
+        # This can happen during installation or if the DocType is not yet synced
+        pass
+    return []
+
+doc_events = {}
+doctypes_to_embed = get_doctypes_for_embedding()
+for doctype in doctypes_to_embed:
+    doc_events[doctype] = {
+        "on_update": "gemini_integration.gemini.update_embedding",
+        "on_trash": "gemini_integration.gemini.delete_embedding"
+    }
 
 # Scheduled Tasks
 # ---------------
