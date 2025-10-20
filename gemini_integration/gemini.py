@@ -749,3 +749,52 @@ def analyze_risks(project_id):
 		return risks
 	except json.JSONDecodeError:
 		return {"error": "Failed to parse a JSON response from the AI. Please try again."}
+
+
+def backfill_embeddings():
+	"""
+	Iterates through specified DocTypes and generates embeddings for each document.
+	"""
+	try:
+		settings = frappe.get_single("Gemini Settings")
+		doctypes_to_embed = [link.doctype_name for link in settings.get("embedding_doctypes", [])]
+
+		if not doctypes_to_embed:
+			frappe.log_info("No DocTypes configured for embedding in Gemini Settings.", "Gemini Integration")
+			return
+
+		for doctype in doctypes_to_embed:
+			if not frappe.db.exists("DocType", doctype):
+				frappe.log_error(f"DocType '{doctype}' configured for embedding does not exist.", "Gemini Integration")
+				continue
+
+			documents = frappe.get_all(doctype, fields=["name"])
+			for doc in documents:
+				try:
+					# This will trigger the on_update hook in hooks.py to generate the embedding
+					frappe.get_doc(doctype, doc.name).save(ignore_permissions=True)
+					frappe.db.commit()
+					frappe.log_info(f"Successfully processed {doctype} - {doc.name}", "Gemini Embedding Backfill")
+				except Exception as e:
+					frappe.log_error(
+						message=f"Failed to process document {doc.name} of doctype {doctype}: {e!s}\n{frappe.get_traceback()}",
+						title="Gemini Embedding Backfill Error",
+					)
+
+		frappe.publish_realtime(
+			"embedding_backfill_complete",
+			{"message": "Successfully generated embeddings for all configured DocTypes."},
+			user=frappe.session.user,
+		)
+
+	except Exception as e:
+		error_message = f"An error occurred during the embedding backfill process: {e!s}"
+		frappe.log_error(
+			message=f"{error_message}\n{frappe.get_traceback()}",
+			title="Gemini Embedding Backfill Failed",
+		)
+		frappe.publish_realtime(
+			"embedding_backfill_failed",
+			{"error": "An error occurred during the embedding backfill. Please check the Error Log for details."},
+			user=frappe.session.user,
+		)
