@@ -406,7 +406,14 @@ def _linkify_erpnext_docs(text):
 @log_activity
 @handle_errors
 def generate_chat_response(
-	prompt, model=None, conversation_id=None, use_google_search=False, stream=False, user=None, context=None
+	prompt,
+	model=None,
+	conversation_id=None,
+	use_google_search=False,
+	stream=False,
+	user=None,
+	doctype=None,
+	docname=None,
 ):
 	"""Handles chat interactions by routing them to the correct MCP tools.
 
@@ -419,6 +426,8 @@ def generate_chat_response(
 	    stream (bool, optional): Whether to stream the response. Defaults to False.
 	    user (str, optional): The user initiating the request. This is crucial for background jobs.
 	        Defaults to None.
+	    doctype (str, optional): The DocType of the document the user is viewing. Defaults to None.
+	    docname (str, optional): The name of the document the user is viewing. Defaults to None.
 
 	Returns:
 	    dict or generator: A dictionary containing the response, thoughts, and conversation ID,
@@ -550,6 +559,32 @@ def generate_chat_response(
 	# 3. Set up the model with the dynamically selected tools and context.
 	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
+	# --- Context Injection and Automatic Tool Call ---
+	# A list of generic prompts that should trigger an automatic context fetch.
+	generic_prompts = [
+		"summarize this", "summarize", "explain this", "explain", "describe this", "what is this",
+		"give me a summary", "can you summarize this?", "tell me about this"
+	]
+
+	document_context_for_model = ""
+	# If context is provided, we might need to pre-emptively fetch the document.
+	if doctype and docname:
+		# Check if the prompt is generic enough to warrant an automatic fetch.
+		if prompt.strip().lower() in generic_prompts:
+			try:
+				# Automatically call the tool to get the document's content.
+				context_result = get_doc_context(doctype=doctype, docname=docname)
+				if isinstance(context_result, dict) and context_result.get("string_representation"):
+					document_context_for_model = context_result["string_representation"]
+			except Exception as e:
+				# If the tool call fails, we log it but don't block the chat.
+				# The model can still proceed with the basic context.
+				frappe.log_error(
+					f"Automatic context fetch failed for {doctype} {docname}: {e!s}",
+					"Gemini Integration",
+				)
+
+	# --- System Instruction Setup ---
 	# Add a system instruction to ground the model and prevent hallucinations.
 	system_instruction = """
 You are an AI assistant integrated into ERPNext. When you use tools to access ERPNext data (like 'search_erpnext_documents'), you must strictly follow these rules:
@@ -558,8 +593,12 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 3. If the tool returns a list of potential matches, you MUST present this list to the user for clarification. Do NOT treat it as a final answer.
 4. Clearly separate information that comes from ERPNext tools from your general knowledge. For example, say 'I found the following in ERPNext...' when presenting tool results.
 """
-	if context:
-		system_instruction += f"\n\n--- CURRENT PAGE CONTEXT ---\nThe user is currently viewing the following document. Use this information to answer their questions.\n{context}\n--- END CONTEXT ---"
+	if doctype and docname:
+		system_instruction += f"\n\n--- CURRENT PAGE CONTEXT ---\nThe user is currently viewing the '{doctype}' document titled '{docname}'. Prioritize this information to answer their questions."
+		if document_context_for_model:
+			system_instruction += "\n\nThe full content of this document has been pre-fetched for you. Use it to answer the user's prompt.\n"
+			system_instruction += f"DOCUMENT CONTENT:\n{document_context_for_model}"
+		system_instruction += "\n--- END CONTEXT ---"
 
 
 	# Find the most recent tool context in the history and add it to the system prompt.
