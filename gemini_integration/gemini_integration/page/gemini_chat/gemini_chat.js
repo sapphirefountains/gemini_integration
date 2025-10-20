@@ -246,30 +246,52 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	help_btn.on("click", () => {
 		const help_html = `
             <div>
-                <h4>How to Reference Data</h4>
-                <p>You can reference data from various sources using special syntaxes in your prompt.</p>
+                <h4>How to Use the Assistant</h4>
+                <p>You can interact with the assistant in two main ways: by using specific tools to access your data or by asking general questions just like you would with a standard chatbot.</p>
 
-                <h5>ERPNext Documents</h5>
-                <p>Use the <code>@</code> symbol to find specific documents by their ID or name.</p>
+                <h5>Using Tools with @-Mentions</h5>
+                <p>To use a specific tool, mention it in your prompt using the <code>@</code> symbol. This tells the assistant exactly where to look for information or what service to use.</p>
                 <ul>
-                    <li><code>@PRJ-00183</code> - Fetches the project with the ID "PRJ-00183".</li>
-                    <li><code>@"Valley Fair"</code> - Searches for a document named "Valley Fair".</li>
+                    <li>
+                        <strong>@ERPNext:</strong> Accesses documents and data from your ERPNext instance.
+                        <br><em>Example: "Pull the quarterly sales report for 'Innovate Corp' from @ERPNext."</em>
+                        <br><em>Example: "What is the status of project @PRJ-00219?"</em>
+                    </li>
+                    <li>
+                        <strong>@Gmail:</strong> Searches your emails or drafts new ones.
+                        <br><em>Example: "Using @Gmail, draft a follow-up email to 'contact@example.com' regarding our meeting last Tuesday."</em>
+                    </li>
+                    <li>
+                        <strong>@Drive:</strong> Finds files in your Google Drive.
+                        <br><em>Example: "Find the 'Q3 Marketing Strategy' document in @Drive."</em>
+                    </li>
+                    <li>
+                        <strong>@Calendar:</strong> Checks your upcoming events.
+                        <br><em>Example: "What are my appointments for next week according to my @Calendar?"</em>
+                    </li>
+                    <li>
+                        <strong>@Contacts:</strong> Searches your Google Contacts.
+                        <br><em>Example: "Find the phone number for 'Jane Doe' in my @Contacts."</em>
+                    </li>
+                    <li>
+                        <strong>@Google:</strong> Performs a broad search across all your connected Google Workspace apps (Gmail, Drive, Calendar, Contacts).
+                        <br><em>Example: "Search @Google for all communications with 'Client Solutions Inc.'."</em>
+                    </li>
                 </ul>
-                <p><strong>Example:</strong> "What is the current status of @PRJ-00183?"</p>
 
-                <h5>Google Workspace</h5>
-                <p>Simply include keywords related to the service you want to use. The system will automatically detect and use the appropriate tool.</p>
+                <h5>General AI Queries</h5>
+                <p>If you don't mention a specific tool, the assistant will use its general knowledge to answer your questions. This is useful for brainstorming, summarization, and problem-solving.</p>
                 <ul>
-                    <li><strong>Email:</strong> "Find emails from @"John Doe" about the Q3 marketing budget"</li>
-                    <li><strong>Drive:</strong> "Search my drive for the '2024 Roadmap' document"</li>
-                    <li><strong>Calendar:</strong> "What are my upcoming events for next week?"</li>
+                    <li><em>"Summarize the latest market trends for enterprise software."</em></li>
+                    <li><em>"Help me outline a business plan for a new subscription service."</em></li>
+                    <li><em>"Draft a professional response to a customer complaint about a delayed shipment."</em></li>
                 </ul>
-                 <h5>Tool Confirmation</h5>
+
+                <h5>Tool Confirmation</h5>
                 <p>For actions that have external effects, like sending an email, the model will first generate a draft or a plan. It will present this to you for confirmation before proceeding with the action.</p>
-
             </div>`;
 		frappe.msgprint({
-			title: __("Help: Referencing Data"),
+			title: __("Help: Using the Assistant"),
 			indicator: "blue",
 			message: help_html,
 		});
