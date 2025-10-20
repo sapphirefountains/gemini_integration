@@ -332,7 +332,9 @@ def _linkify_erpnext_docs(text):
 
 @log_activity
 @handle_errors
-def generate_chat_response(prompt, model=None, conversation_id=None, use_google_search=False):
+def generate_chat_response(
+	prompt, model=None, conversation_id=None, use_google_search=False, stream=False
+):
 	"""Handles chat interactions by routing them to the correct MCP tools.
 
 	Args:
@@ -341,9 +343,11 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 	    conversation_id (str, optional): The ID of the existing conversation. Defaults to None.
 	    use_google_search (bool, optional): Whether to enable Google Search for this query.
 	        Defaults to False.
+	    stream (bool, optional): Whether to stream the response. Defaults to False.
 
 	Returns:
-	    dict: A dictionary containing the response, thoughts, and conversation ID.
+	    dict or generator: A dictionary containing the response, thoughts, and conversation ID,
+	        or a generator that yields the response chunks.
 	"""
 	# Configure the Gemini client before proceeding
 	settings = frappe.get_single("Gemini Settings")
@@ -532,78 +536,70 @@ CONTEXT:
 	chat = model_instance.start_chat(history=gemini_history)
 
 	# 4. Send the prompt and handle the response, including any tool calls
-	response = chat.send_message(prompt)
+	response = chat.send_message(prompt, stream=stream)
 
-	# Loop to handle multiple potential tool calls from the model
-	tool_calls_log = []
-	while True:
-		# Check if the model's response contains a function call.
-		function_call = None
-		if (
-			response.candidates
-			and response.candidates[0].content
-			and response.candidates[0].content.parts
-		):
-			for part in response.candidates[0].content.parts:
-				if part.function_call:
-					function_call = part.function_call
-					break
-
-		if not function_call:
-			break
-
-		frappe.log_error(message=str(function_call), title="Gemini Raw Function Call")
-		tool_name = function_call.name
-		tool_args = {key: value for key, value in function_call.args.items()}
-
-		try:
-			tool_function = mcp._tool_registry[tool_name]["fn"]
-			tool_result_obj = tool_function(**tool_args)
-
-			# The tool now returns a dictionary. We need to extract the string representation
-			# to send back to the model, and the full data to store in our context.
-			if isinstance(tool_result_obj, dict):
-				tool_result_for_model = tool_result_obj.get("string_representation", "")
+	def process_response():
+		# Loop to handle multiple potential tool calls from the model
+		tool_calls_log = []
+		final_response_text = ""
+		for chunk in response:
+			if chunk.candidates[0].content.parts[0].function_call:
+				function_call = chunk.candidates[0].content.parts[0].function_call
+				tool_name = function_call.name
+				tool_args = {key: value for key, value in function_call.args.items()}
+				tool_function = mcp._tool_registry[tool_name]["fn"]
+				tool_result_obj = tool_function(**tool_args)
+				if isinstance(tool_result_obj, dict):
+					tool_result_for_model = tool_result_obj.get("string_representation", "")
+				else:
+					tool_result_for_model = str(tool_result_obj)
+				if (
+					tool_name == "search_erpnext_documents"
+					and tool_result_obj.get("type") == "confident_match"
+				):
+					conversation_history.append(
+						{"role": "tool_context", "content": json.dumps(tool_result_obj)}
+					)
+				tool_calls_log.append(
+					{"tool": tool_name, "arguments": tool_args, "result": tool_result_for_model}
+				)
+				function_response_payload = {
+					"function_response": {
+						"name": tool_name,
+						"response": {"contents": tool_result_for_model},
+					}
+				}
+				response = chat.send_message([function_response_payload], stream=stream)
 			else:
-				tool_result_for_model = str(tool_result_obj)
+				final_response_text += chunk.text
+				if stream:
+					frappe.publish_realtime(
+						"gemini_chat_update", {"message": chunk.text}, user=frappe.session.user
+					)
+		return final_response_text, tool_calls_log
 
-			# --- CONTEXT RETENTION MODIFICATION ---
-			# If the tool found a confident match, save the full document dictionary
-			# to the conversation history for grounding future follow-up questions.
-			if tool_name == "search_erpnext_documents" and tool_result_obj.get("type") == "confident_match":
-				conversation_history.append({"role": "tool_context", "content": json.dumps(tool_result_obj)})
-			# --- END MODIFICATION ---
+	if stream:
 
-		except Exception:
-			frappe.log_error(
-				message=frappe.get_traceback(), title=f"Error executing tool: {tool_name}"
-			)
-			frappe.throw(
-				f"An error occurred while executing the tool: {tool_name}. Please check the Error Log for details."
-			)
+		def stream_generator():
+			nonlocal conversation_id
+			if not conversation_id:
+				new_conversation = save_conversation(None, prompt, [])
+				conversation_id = new_conversation
+				frappe.publish_realtime(
+					"gemini_chat_update",
+					{"conversation_id": conversation_id},
+					user=frappe.session.user,
+				)
+			final_response_text, _ = process_response()
+			# Save the conversation after the stream is complete
+			conversation_history.append({"role": "user", "text": prompt})
+			conversation_history.append({"role": "gemini", "text": final_response_text})
+			save_conversation(conversation_id, prompt, conversation_history)
+			yield ""
 
-		tool_calls_log.append(
-			{"tool": tool_name, "arguments": tool_args, "result": tool_result_for_model}
-		)
+		return stream_generator()
 
-		function_response_payload = {
-			"function_response": {"name": tool_name, "response": {"contents": tool_result_for_model}}
-		}
-
-		frappe.log_error(
-			message=json.dumps(function_response_payload, indent=2, default=str),
-			title="Gemini Function Response to Model",
-		)
-
-		response = chat.send_message([function_response_payload])
-
-	# 5. Extract the final text response and thoughts, handling potential errors
-	try:
-		final_response_text = response.text
-	except ValueError:
-		# This occurs if the response has no text part (e.g., due to safety filters
-		# or a function call without a final text response).
-		final_response_text = "Here is the image you requested." if image_url else "No response from the model."
+	final_response_text, tool_calls_log = process_response()
 
 	# Linkify any ERPNext document IDs found in the final response
 	final_response_text = _linkify_erpnext_docs(final_response_text)

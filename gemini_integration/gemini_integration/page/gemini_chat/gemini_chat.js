@@ -329,14 +329,38 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		add_to_history("user", prompt);
 		chat_input.val("");
 
-		let loading = frappe.msgprint({
-			message: __("Getting response from Gemini..."),
-			indicator: "blue",
-			title: __("Please Wait"),
+		// Disable input and show loading spinner
+		chat_input.prop("disabled", true);
+		send_btn.prop("disabled", true);
+		send_btn.html('<i class="fa fa-spinner fa-spin"></i>');
+
+		// Create a new bubble for the streaming response
+		let bubble = add_to_history("gemini", "");
+		let full_response = "";
+
+		frappe.realtime.on("gemini_chat_update", function (data) {
+			if (data.conversation_id && !currentConversation) {
+				currentConversation = data.conversation_id;
+				load_conversations();
+			}
+			if (data.message) {
+				full_response += data.message;
+				bubble.html(
+					DOMPurify.sanitize(new showdown.Converter().makeHtml(full_response))
+				);
+				chat_history.scrollTop(chat_history[0].scrollHeight);
+			}
+			if (data.thoughts) {
+				add_to_history("thoughts", data.thoughts);
+			}
+			if (data.suggestions) {
+				render_clarification_options(full_response, data.suggestions);
+			}
 		});
 
+		// Use frappe.call for streaming
 		frappe.call({
-			method: "gemini_integration.api.chat",
+			method: "gemini_integration.api.stream_chat",
 			args: {
 				prompt: prompt,
 				model: page.model_selector.get_value(),
@@ -344,45 +368,20 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 				use_google_search: google_search_checkbox.is(":checked"),
 			},
 			callback: function (r) {
-				loading.hide();
-				if (r.message) {
-					// The response can be a string (for info messages) or an object
-					if (typeof r.message === "string") {
-						add_to_history("gemini", r.message);
-						return;
-					}
-
-					if (r.message.thoughts) add_to_history("thoughts", r.message.thoughts);
-
-					// Check for suggestions, which indicates clarification is needed
-					if (r.message.suggestions && r.message.suggestions.length > 0) {
-						render_clarification_options(r.message.response, r.message.suggestions);
-					} else {
-						add_to_history("gemini", r.message.response, r.message.image_url);
-					}
-
-					if (r.message.conversation_id && !currentConversation) {
-						currentConversation = r.message.conversation_id;
-						load_conversations();
-					}
-				} else {
-					add_to_history(
-						"gemini",
-						"Sorry, I received an empty response. Please try again."
-					);
-				}
+				// This callback is intentionally left empty because the response is streamed.
 			},
 			error: function (r) {
-				loading.hide();
-				let error_msg =
-					"An unknown server error occurred. Please check the console or server logs for more details.";
-				if (r && r.message) {
-					// Sanitize message to prevent potential XSS if rendered as HTML
-					error_msg = r.message.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-				} else if (r && r.statusText) {
-					error_msg = `Request failed: ${r.statusText}`;
-				}
-				add_to_history("gemini", `Error: ${error_msg}`);
+				// Re-enable input
+				chat_input.prop("disabled", false);
+				send_btn.prop("disabled", false);
+				send_btn.html('<i class="fa fa-arrow-up"></i>');
+				add_to_history("gemini", `Error: ${r.message}`);
+			},
+			always: function () {
+				// Re-enable input
+				chat_input.prop("disabled", false);
+				send_btn.prop("disabled", false);
+				send_btn.html('<i class="fa fa-arrow-up"></i>');
 			},
 		});
 	};
@@ -493,6 +492,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 			}
 			conversation.push(message_to_save);
 		}
+		return bubble;
 	};
 
 	let script = document.createElement("script");
