@@ -387,11 +387,18 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 
 		// Add initials to avatar
 		if (role === "user") {
-			if (frappe.session.user_image) {
-				avatar.html(`<img src="${frappe.session.user_image}" alt="${frappe.session.user_fullname}">`);
-			} else {
+			const set_fallback_avatar = () => {
+				avatar.empty();
 				avatar.text(frappe.session.user_abbr);
 				avatar.css("background-color", frappe.get_palette(frappe.session.user_fullname));
+			}
+
+			if (frappe.session.user_image) {
+				const img = $(`<img src="${frappe.session.user_image}" alt="${frappe.session.user_fullname}">`);
+				img.on("error", set_fallback_avatar);
+				avatar.html(img);
+			} else {
+				set_fallback_avatar();
 			}
 		} else {
 			avatar.html('<img src="/assets/gemini_integration/images/gemini_logo.svg" alt="Gemini">');
