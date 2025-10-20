@@ -45,7 +45,7 @@ function createGeminiChatUI(parentElement, options = {}) {
         #gemini-chat-container .chat-bubble.gemini { background-color: var(--gemini-model-bubble); color: var(--gemini-text-color); border-bottom-left-radius: 4px; }
         #gemini-chat-container .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid var(--gemini-border-color); color: #4b5563; width: 100%; max-width: 100%; margin: 15px 0; padding: 15px; }
 		#gemini-chat-container .chat-bubble .generated-image { max-width: 100%; border-radius: 10px; margin-top: 10px; }
-		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; margin-bottom: 30px; text-align: center; margin-top: auto; }
+		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; text-align: center; margin: auto; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
 		#gemini-chat-container .greeting-subtitle { font-size: 16px; color: var(--gemini-light-text); }
         #gemini-chat-container .context-indicator { text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 20px; border-radius: 12px; }
@@ -69,7 +69,8 @@ function createGeminiChatUI(parentElement, options = {}) {
             #gemini-chat-container .page-header { display: block; }
             #gemini-chat-container .conversations-sidebar { position: absolute; top: 0; left: 0; height: 100%; z-index: 10; background: var(--gemini-sidebar-bg); transform: translateX(-100%); box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
             #gemini-chat-container.sidebar-open .conversations-sidebar { transform: translateX(0); }
-            #gemini-chat-container .gemini-chat-wrapper { padding: 0; }
+            #gemini-chat-container .gemini-chat-wrapper { padding: 0; height: 100%; }
+			#gemini-chat-container .chat-history { min-height: 0; }
 			#gemini-chat-container .chat-input-area { margin: 0 15px 15px; }
         }
     `;
