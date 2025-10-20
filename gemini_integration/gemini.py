@@ -881,6 +881,7 @@ def delete_embedding_in_background(doctype, docname):
 def backfill_embeddings():
 	"""
 	Iterates through specified DocTypes and generates embeddings for each document.
+	This is triggered manually and bypasses the `save` method to avoid validation errors.
 	"""
 	try:
 		settings = frappe.get_single("Gemini Settings")
@@ -896,19 +897,29 @@ def backfill_embeddings():
 				continue
 
 			documents = frappe.get_all(doctype, fields=["name"])
-			for doc in documents:
+			for doc_info in documents:
+				docname = doc_info.name
 				try:
-					# This will trigger the on_update hook in hooks.py to generate the embedding
-					frappe.get_doc(doctype, doc.name).save(ignore_permissions=True)
-					frappe.log_info(f"Successfully processed {doctype} - {doc.name}", "Gemini Embedding Backfill")
-				except frappe.MandatoryError as e:
-					frappe.log_error(
-						message=f"Skipped document {doc.name} of doctype {doctype} due to missing mandatory fields: {e!s}",
-						title="Gemini Embedding Backfill - Mandatory Field Error",
+					# 1. Delete existing embeddings for the document
+					existing_embeddings = frappe.get_all(
+						"Gemini Embedding",
+						filters={"ref_doctype": doctype, "ref_docname": docname},
+						pluck="name",
 					)
+					for embedding_name in existing_embeddings:
+						frappe.delete_doc("Gemini Embedding", embedding_name, ignore_permissions=True)
+
+					# 2. Enqueue the generation of new embeddings
+					frappe.enqueue(
+						"gemini_integration.gemini.generate_embedding_in_background",
+						doctype=doctype,
+						docname=docname,
+					)
+					frappe.log_info(f"Successfully enqueued embedding generation for {doctype} - {docname}", "Gemini Embedding Backfill")
+
 				except Exception as e:
 					frappe.log_error(
-						message=f"Failed to process document {doc.name} of doctype {doctype}: {e!s}\n{frappe.get_traceback()}",
+						message=f"Failed to process document {docname} of doctype {doctype}: {e!s}\n{frappe.get_traceback()}",
 						title="Gemini Embedding Backfill Error",
 					)
 
