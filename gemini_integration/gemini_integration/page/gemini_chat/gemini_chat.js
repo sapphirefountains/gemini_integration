@@ -57,6 +57,13 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 			align-items: center;
 			justify-content: center;
 			font-weight: bold;
+			overflow: hidden;
+		}
+
+		.avatar img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
 		}
 
 		.chat-bubble-wrapper.user .avatar {
@@ -380,12 +387,15 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 
 		// Add initials to avatar
 		if (role === "user") {
-			avatar.text(frappe.session.user_abbr);
-			avatar.css("background-color", frappe.get_palette(frappe.session.user_fullname));
+			if (frappe.session.user_image) {
+				avatar.html(`<img src="${frappe.session.user_image}" alt="${frappe.session.user_fullname}">`);
+			} else {
+				avatar.text(frappe.session.user_abbr);
+				avatar.css("background-color", frappe.get_palette(frappe.session.user_fullname));
+			}
 		} else {
-			avatar.html('<i class="fa fa-android"></i>'); // Example Gemini icon
-			avatar.css("background-color", "#f1f3f4");
-			avatar.css("color", "#202124");
+			avatar.html('<img src="/assets/gemini_integration/images/gemini_logo.svg" alt="Gemini">');
+			avatar.css("background-color", "transparent");
 		}
 
 
