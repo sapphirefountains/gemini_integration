@@ -333,7 +333,7 @@ def _linkify_erpnext_docs(text):
 @log_activity
 @handle_errors
 def generate_chat_response(
-	prompt, model=None, conversation_id=None, use_google_search=False, stream=False
+	prompt, model=None, conversation_id=None, use_google_search=False, stream=False, user=None
 ):
 	"""Handles chat interactions by routing them to the correct MCP tools.
 
@@ -344,6 +344,8 @@ def generate_chat_response(
 	    use_google_search (bool, optional): Whether to enable Google Search for this query.
 	        Defaults to False.
 	    stream (bool, optional): Whether to stream the response. Defaults to False.
+	    user (str, optional): The user initiating the request. This is crucial for background jobs.
+	        Defaults to None.
 
 	Returns:
 	    dict or generator: A dictionary containing the response, thoughts, and conversation ID,
@@ -631,7 +633,7 @@ CONTEXT:
 					final_response_text += text_chunk
 					if stream:
 						frappe.publish_realtime(
-							"gemini_chat_update", {"message": text_chunk}, user=frappe.session.user
+							"gemini_chat_update", {"message": text_chunk}, user=user
 						)
 
 			except Exception as e:
@@ -644,59 +646,56 @@ CONTEXT:
 					frappe.publish_realtime(
 						"gemini_chat_update",
 						{"error": "An error occurred while processing the response."},
-						user=frappe.session.user,
+						user=user,
 					)
 				# Stop processing the stream on error
 				break
 
 		return final_response_text, tool_calls_log
 
+	# --- Main Execution Logic ---
+
+	# If streaming, the process runs entirely in the background, communicating via WebSockets.
 	if stream:
-
-		def stream_generator():
-			nonlocal conversation_id
-			# Ensure a conversation exists before starting the stream
-			if not conversation_id:
-				conversation_id = save_conversation(None, prompt, [])
-				frappe.publish_realtime(
-					"gemini_chat_update",
-					{"conversation_id": conversation_id},
-					user=frappe.session.user,
-				)
-
-			# Process the stream from the initial prompt
-			final_response_text, tool_calls_log = process_response_stream(response_stream)
-
-			# Log the full tool call trace if any tools were used
-			if tool_calls_log:
-				log_entry = {
-					"source": "Gemini Tool Call Trace",
-					"tool_calls": tool_calls_log,
-					"final_response": final_response_text,
-				}
-				frappe.log_error(
-					message=json.dumps(log_entry, indent=2, default=str),
-					title="Gemini Tool Call Trace",
-				)
-
-			# Update and save the complete conversation history
-			conversation_history.append({"role": "user", "text": prompt})
-			conversation_history.append({"role": "gemini", "text": final_response_text})
-			save_conversation(conversation_id, prompt, conversation_history)
-
-			# Signal the end of the stream to the client
+		# Ensure a conversation exists before starting the stream
+		if not conversation_id:
+			conversation_id = save_conversation(None, prompt, [], user=user)
 			frappe.publish_realtime(
-				"gemini_chat_update", {"end_of_stream": True}, user=frappe.session.user
+				"gemini_chat_update",
+				{"conversation_id": conversation_id},
+				user=user,
 			)
-			# The generator must yield something for the request to complete.
-			yield ""
 
-		return stream_generator()
+		# Process the stream from the initial prompt
+		final_response_text, tool_calls_log = process_response_stream(response_stream)
 
-	# Handle the non-streaming case
+		# Linkify any ERPNext document IDs found in the final response
+		final_response_text = _linkify_erpnext_docs(final_response_text)
+
+		# Log the full tool call trace if any tools were used
+		if tool_calls_log:
+			log_entry = {
+				"source": "Gemini Tool Call Trace",
+				"tool_calls": tool_calls_log,
+				"final_response": final_response_text,
+			}
+			frappe.log_error(
+				message=json.dumps(log_entry, indent=2, default=str),
+				title="Gemini Tool Call Trace",
+			)
+
+		# Update and save the complete conversation history
+		conversation_history.append({"role": "user", "text": prompt})
+		conversation_history.append({"role": "gemini", "text": final_response_text})
+		save_conversation(conversation_id, prompt, conversation_history)
+
+		# Signal the end of the stream to the client
+		frappe.publish_realtime("gemini_chat_update", {"end_of_stream": True}, user=user)
+		# Since this is a background job, we don't need to return anything.
+		return
+
+	# Handle the non-streaming (blocking) case for other potential integrations
 	final_response_text, tool_calls_log = process_response_stream(response_stream)
-
-	# Linkify any ERPNext document IDs found in the final response
 	final_response_text = _linkify_erpnext_docs(final_response_text)
 
 	# If tools were called, log the complete trace for debugging.
@@ -737,13 +736,15 @@ CONTEXT:
 	return final_return_payload
 
 
-def save_conversation(conversation_id, title, conversation):
+def save_conversation(conversation_id, title, conversation, user=None):
 	"""Saves or updates a conversation in the database.
 
 	Args:
 	    conversation_id (str): The ID of the conversation to update, or None to create a new one.
 	    title (str): The title of the conversation.
 	    conversation (list): The list of conversation entries.
+	    user (str, optional): The user to assign the conversation to if creating a new one.
+	        Defaults to the current session user.
 
 	Returns:
 	    str: The name of the saved conversation document.
@@ -752,7 +753,7 @@ def save_conversation(conversation_id, title, conversation):
 		# Create a new conversation
 		doc = frappe.new_doc("Gemini Conversation")
 		doc.title = title[:140]
-		doc.user = frappe.session.user
+		doc.user = user or frappe.session.user
 	else:
 		# Update an existing conversation
 		doc = frappe.get_doc("Gemini Conversation", conversation_id)
