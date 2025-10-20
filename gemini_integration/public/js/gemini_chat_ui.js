@@ -373,7 +373,3 @@ function createGeminiChatUI(parentElement) {
     // Make the send_message function accessible from outside
     container.data("send_message", send_message);
 }
-
-loadScript("https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js", () => {
-    loadScript("https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js");
-});
