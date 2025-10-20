@@ -118,6 +118,9 @@ from gemini_integration.tools import (
 	search_erpnext_documents,
 	search_gmail,
 	search_google_contacts,
+	create_comment,
+	create_task,
+	update_document_status,
 )
 from gemini_integration.utils import configure_gemini, generate_embedding
 
@@ -484,7 +487,13 @@ def generate_chat_response(
 		# Create a mapping from the service mention to the tool function names.
 		# This is more robust than relying on direct name matching.
 		service_to_tool_map = {
-			"erpnext": ["search_erpnext_documents", "fetch_erpnext_data"],
+			"erpnext": [
+				"search_erpnext_documents",
+				"fetch_erpnext_data",
+				"create_comment",
+				"create_task",
+				"update_document_status",
+			],
 			"google": [
 				"search_drive",
 				"search_gmail",
