@@ -1,10 +1,11 @@
 /* global showdown, DOMPurify */
 
-function createGeminiChatUI(parentElement) {
+function createGeminiChatUI(parentElement, options = {}) {
     let container = $(parentElement);
     container.html(""); // Clear any existing content
 
     let currentConversation = null;
+    let page_context = options.doctype && options.docname ? { doctype: options.doctype, docname: options.docname } : null;
 
     const styles = `
         #gemini-chat-container {
@@ -61,6 +62,7 @@ function createGeminiChatUI(parentElement) {
 		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; margin-bottom: 30px; text-align: center; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
 		#gemini-chat-container .greeting-subtitle { font-size: 16px; color: var(--gemini-light-text); }
+        #gemini-chat-container .context-indicator { text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: -20px 20px 20px; border-radius: 0 0 12px 12px; }
         #gemini-chat-container .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin-bottom: 20px; }
         #gemini-chat-container .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		#gemini-chat-container .chat-input-area textarea:focus { box-shadow: none; }
@@ -246,7 +248,7 @@ function createGeminiChatUI(parentElement) {
         }
     });
 
-    const send_message = (prompt, context) => {
+    const send_message = (prompt) => {
         if (!prompt) {
             prompt = chat_input.val().trim();
             if (!prompt) return;
@@ -259,6 +261,16 @@ function createGeminiChatUI(parentElement) {
         streaming_bubble = add_to_history("gemini", "");
         full_response = "";
 
+        // Prepare context to be sent to the backend
+        let api_context = null;
+        if (page_context) {
+            api_context = `The user is viewing the '${page_context.doctype}' document titled '${page_context.docname}'.`;
+            // Clear the context after the first message
+            page_context = null;
+            // Also remove the visual indicator
+            container.find(".context-indicator").remove();
+        }
+
         frappe.call({
             method: "gemini_integration.api.stream_chat",
             args: {
@@ -266,7 +278,7 @@ function createGeminiChatUI(parentElement) {
                 model: model_selector.get_value(),
                 conversation_id: currentConversation,
                 use_google_search: google_search_checkbox.is(":checked"),
-                context: context,
+                context: api_context,
             },
             error: function (r) {
                 chat_input.prop("disabled", false);
@@ -339,6 +351,10 @@ function createGeminiChatUI(parentElement) {
 
     const show_greeting = () => {
         chat_history.html(`<div class="greeting-card"><h1 class="greeting-title">Hello, ${frappe.session.user_fullname}</h1><p class="greeting-subtitle">How can I help you today?</p></div>`);
+        if (page_context) {
+            const indicator = $(`<div class="context-indicator">Asking about ${page_context.doctype} ${page_context.docname}</div>`);
+            chat_history.after(indicator);
+        }
     };
 
     new_chat_btn.on("click", () => {
