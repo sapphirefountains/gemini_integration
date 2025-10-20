@@ -33,50 +33,29 @@ function setupGeminiChatWidget() {
     const chatContent = document.getElementById("gemini-chat-overlay-content");
     let isChatUiInitialized = false;
 
-    const getPageContext = () => {
-		let context = "";
-		// 1. Handle Form Views
-		if (frappe.container?.page?.frm) {
-			const frm = frappe.container.page.frm;
-			context = `The user is viewing the '${frm.doctype}' document titled '${frm.doc.name}'.\n\n`;
-			context += "Document Data:\n" + JSON.stringify(frm.doc, null, 2);
-			return context;
+    const getDocumentContextFromUrl = () => {
+		const path = window.location.pathname;
+		// Matches patterns like /app/Project/PRJ-00001 or /app/Sales%20Invoice/SINV-00001
+		const match = path.match(/^\/app\/([^/]+)\/([^/]+)/);
+		if (match) {
+			return {
+				doctype: decodeURIComponent(match[1]), // Decode URL-encoded characters like %20
+				docname: decodeURIComponent(match[2]),
+			};
 		}
-
-		// 2. Handle List Views
-		const route = frappe.get_route();
-		if (route && route[0] === "List" && route[1]) {
-			const doctype = route[1];
-			const list_view = frappe.views.list_view;
-			if (list_view && list_view.doctype === doctype) {
-				context = `The user is viewing a list of '${doctype}' documents.\n`;
-				const filters = list_view.get_filters_for_args();
-				if (filters && filters.length > 0) {
-					context += "\nCurrent Filters:\n" + JSON.stringify(filters, null, 2);
-				}
-				const data = list_view.data.slice(0, 5); // Get top 5 items
-				if (data && data.length > 0) {
-					context += "\n\nFirst 5 items in the list:\n" + JSON.stringify(data, null, 2);
-				}
-				return context;
-			}
-		}
-
-		return null; // No specific context found
+		return null;
 	};
 
     const toggleChatOverlay = () => {
         chatOverlay.classList.toggle("visible");
         if (chatOverlay.classList.contains("visible")) {
-            const pageContext = getPageContext();
             if (!isChatUiInitialized) {
-                createGeminiChatUI(chatContent);
+                const docContext = getDocumentContextFromUrl();
+                createGeminiChatUI(
+                    chatContent,
+                    docContext ? { doctype: docContext.doctype, docname: docContext.docname } : {}
+                );
                 isChatUiInitialized = true;
-                if (pageContext) {
-                    $(chatContent).data("send_message")("Summarize the current page.", pageContext);
-                }
-            } else if (pageContext) {
-                 $(chatContent).data("send_message")("Summarize the current page.", pageContext);
             }
         }
     };
