@@ -693,6 +693,10 @@ CONTEXT:
 						title="Gemini Tool Response",
 					)
 
+					# The stream must be fully consumed before sending the next message.
+					# Calling resolve() finishes the iteration.
+					current_stream.resolve()
+
 					# Send the tool's result back to the model and get the new response stream
 					function_response_payload = [
 						{
