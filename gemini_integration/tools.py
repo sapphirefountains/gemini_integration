@@ -85,6 +85,28 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 	and compatibility for AI context.
 	"""
 	try:
+		# Get the maximum permission level the current user has for reading this doctype.
+		user_roles = frappe.get_roles()
+		# System Manager can read all fields, so we can skip the query for them.
+		if "System Manager" in user_roles:
+			max_read_permlevel = 999
+		else:
+			max_read_permlevel_res = frappe.db.sql(
+				"""
+				SELECT MAX(permlevel)
+				FROM `tabDocPerm`
+				WHERE `role` IN %(roles)s
+				AND `parent` = %(doctype)s
+				AND `read` = 1
+			""",
+				{"roles": user_roles, "doctype": doctype_name},
+			)
+			max_read_permlevel = (
+				max_read_permlevel_res[0][0]
+				if max_read_permlevel_res and max_read_permlevel_res[0][0] is not None
+				else -1
+			)
+
 		meta = frappe.get_meta(doctype_name)
 		fields_to_fetch = ["name"]  # 'name' is always essential
 
@@ -95,8 +117,8 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 		}
 
 		for df in meta.fields:
-			# Check 1: User has at least read permission for the field
-			if not frappe.has_permission(doctype_name, "read", fieldname=df.fieldname):
+			# Check 1: User's max permlevel must be >= the field's permlevel.
+			if df.permlevel > max_read_permlevel:
 				continue
 
 			# Check 2: Field is not hidden
