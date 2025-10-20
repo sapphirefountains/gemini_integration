@@ -306,13 +306,15 @@ get_doc_context.service = "erpnext"
 @handle_errors
 def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) -> dict:
 	"""Searches for documents in ERPNext with a query, returning a dictionary of results.
-	This tool prioritizes semantic search if embeddings are available, falling back to
-	fuzzy text search if no high-confidence semantic match is found.
+	This tool implements a "waterfall" logic:
+	1. Exact ID Match: Fast check for specific document IDs (e.g., 'CRM-OPP-2025-00631').
+	2. Semantic Search: If not an ID, uses vector embeddings to find conceptually similar documents.
+	3. Fuzzy Text Search: As a final fallback, performs a broader, less precise text search.
 
 	Args:
 	    query (str): The search query.
 	    doctype (str, optional): The specific DocType to search within. If None, it
-	        searches across a default set of DocTypes. Defaults to None.
+	        searches across all non-single DocTypes. Defaults to None.
 	    limit (int, optional): The maximum number of documents to return.
 	        Defaults to 5.
 
@@ -322,16 +324,17 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	try:
 		limit = int(limit)
 
-		# --- Direct ID Search ---
-		# Use regex to detect if the query is a likely DocType name/ID and check if it exists.
-		# This is much faster than doing a full fuzzy or semantic search.
-		# The regex looks for patterns like 'PRJ-00219'.
-		if re.match(r"^[A-Z]{2,5}-?\d{1,9}$", query.strip(), re.IGNORECASE):
-			doctypes_for_direct_check = (
+		# --- Priority #1: Exact ID Match ---
+		# Use a flexible regex to detect if the query is a likely document ID, then verify its existence.
+		if re.match(r"^([A-Z]{2,}[-.]?)+(\d{4,})([-.]?\d+)*$", query.strip(), re.IGNORECASE):
+			# If a specific doctype is provided, check only that one.
+			# Otherwise, check all non-single DocTypes.
+			doctypes_to_check = (
 				[doctype] if doctype else frappe.get_all("DocType", filters={"issingle": 0}, pluck="name")
 			)
-			for dt in doctypes_for_direct_check:
+			for dt in doctypes_to_check:
 				if frappe.db.exists(dt, query):
+					# If a match is found, fetch the full document and return it as a confident match.
 					doc = frappe.get_doc(dt, query)
 					doc_dict = json.loads(frappe.as_json(doc))
 					meta = frappe.get_meta(dt)
@@ -349,17 +352,25 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					context += f"\nLink: {doc_url}"
 					return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
 
-		# --- Semantic Search ---
+		# --- Priority #2: Semantic Embedding Search ---
 		query_embedding = generate_embedding(query)
 		if query_embedding:
 			similar_docs = find_similar_documents(np.array(query_embedding), doctype, limit)
-			if similar_docs:
-				# If the top semantic result has a much higher score, treat it as a confident match
-				if len(similar_docs) > 1 and similar_docs[0]["score"] > similar_docs[1]["score"] * 1.5:
-					top_doc_info = similar_docs[0]
+
+			# Filter out results below the base threshold
+			relevant_docs = [doc for doc in similar_docs if doc.get("score", 0) >= 0.75]
+
+			if relevant_docs:
+				# Confident Match: If top score is 1.5x higher than the second, we have a clear winner.
+				if len(relevant_docs) == 1 or (len(relevant_docs) > 1 and relevant_docs[0]["score"] >= relevant_docs[1]["score"] * 1.5):
+					top_doc_info = relevant_docs[0]
 					doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
 					doc_dict = json.loads(frappe.as_json(doc))
-					context = f"Found a confident match for '{query}' based on semantic similarity: {top_doc_info['label']} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
+					meta = frappe.get_meta(top_doc_info["doctype"])
+					title_field = meta.get_title_field()
+					label = (title_field and doc.get(title_field)) or doc.name
+
+					context = f"Found a confident match for '{query}' based on semantic similarity: {label} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
 					for field, value in doc_dict.items():
 						if value:
 							if isinstance(value, list):
@@ -370,9 +381,9 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					context += f"\nLink: {doc_url}"
 					return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
 
-				# Otherwise, return the list for disambiguation
-				results_string = "Found the following documents based on semantic similarity:\n"
-				for doc in similar_docs:
+				# Disambiguation: If there are multiple relevant results but no clear winner, ask the user.
+				results_string = "I found a few potential matches. Which one did you mean?\n"
+				for doc in relevant_docs:
 					meta = frappe.get_meta(doc["doctype"])
 					title_field = meta.get_title_field()
 					label = (
@@ -382,10 +393,10 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					results_string += f"- <a href='{doc_url}' target='_blank'>{label}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 					if doc.get("content"):
 						results_string += f"  - Matching Content: \"...{doc['content'][:150]}...\"\n"
-				return {"type": "disambiguation", "docs": similar_docs, "string_representation": results_string}
+				return {"type": "disambiguation", "docs": relevant_docs, "string_representation": results_string}
 
-		# --- Fallback to Fuzzy Search ---
-		# If no exact match, perform a fuzzy search
+
+		# --- Priority #3: Fuzzy Text Search (Fallback) ---
 		default_doctypes = [
 			"Project", "Customer", "Supplier", "Item", "Sales Order",
 			"Purchase Order", "Lead", "Opportunity", "Task", "Issue"
@@ -397,27 +408,19 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 			try:
 				meta = frappe.get_meta(dt)
 				fields_to_fetch = _get_doctype_fields(dt)
-
-				# Build OR filters for a LIKE query to find candidate documents.
-				# This is more efficient than fetching all documents and scoring them in Python.
-				text_like_fields = []
-				for field_name in fields_to_fetch:
-					df = meta.get_field(field_name)
-					if df and df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Select", "Link", "Read Only"]:
-						text_like_fields.append(field_name)
-
-				or_filters = [[field, "like", f"%{query}%"] for field in text_like_fields]
-
-				if not or_filters:
+				text_like_fields = [
+					f.fieldname for f in meta.fields
+					if f.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Select", "Link", "Read Only"]
+					and f.fieldname in fields_to_fetch
+				]
+				if not text_like_fields:
 					continue
-
-				# Fetch candidate documents from the database
+				or_filters = [[field, "like", f"%{query}%"] for field in text_like_fields]
 				candidate_docs = frappe.get_all(dt, fields=fields_to_fetch, or_filters=or_filters, limit_page_length=20)
 
 				if not candidate_docs:
 					continue
 
-				# Score the candidates using fuzzy matching
 				title_field = meta.get_title_field()
 				search_fields = meta.get_search_fields()
 				field_weights = {"name": 3.0}
@@ -429,53 +432,45 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 
 				for doc in candidate_docs:
 					total_score = 0
-					# Combine all field values for a general score
 					full_text = " ".join([str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights])
 					total_score += fuzz.token_set_ratio(query, full_text)
-
-					# Add weighted scores for important fields
 					for field, weight in field_weights.items():
 						field_value = str(doc.get(field, ""))
 						if field_value:
 							total_score += fuzz.token_set_ratio(query, field_value) * weight
 
-					if total_score > 70: # Confidence threshold
+					if total_score > 70:
 						label = (title_field and doc.get(title_field)) or doc.name
 						all_scored_docs.append({"name": doc.name, "doctype": dt, "score": total_score, "label": label})
 
 			except frappe.DoesNotExistError:
 				continue
 
-		if not all_scored_docs:
-			search_scope = f"in DocType '{doctype}'" if doctype else "across the system"
-			string_repr = f"No documents {search_scope} found matching your query '{query}'."
-			return {"type": "no_match", "string_representation": string_repr}
-
-		sorted_docs = sorted(all_scored_docs, key=lambda x: x["score"], reverse=True)
-		# If the top fuzzy result has a much higher score, treat it as a confident match
-		if len(sorted_docs) == 1 or (len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5):
-			top_doc_info = sorted_docs[0]
-			doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
-			doc_dict = json.loads(frappe.as_json(doc))
-			context = f"Found a confident match for '{query}': {top_doc_info['label']} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
-			for field, value in doc_dict.items():
-				if value:
-					if isinstance(value, list):
-						context += f"- {field}: (Contains a list of {len(value)} items)\n"
-					else:
+		if all_scored_docs:
+			sorted_docs = sorted(all_scored_docs, key=lambda x: x["score"], reverse=True)
+			if len(sorted_docs) == 1 or (len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5):
+				top_doc_info = sorted_docs[0]
+				doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
+				doc_dict = json.loads(frappe.as_json(doc))
+				context = f"Found a confident match for '{query}': {top_doc_info['label']} (ID: {top_doc_info['name']}, Type: {top_doc_info['doctype']}).\n\nFull details:\n"
+				for field, value in doc_dict.items():
+					if value and not isinstance(value, list):
 						context += f"- {field}: {value}\n"
-			doc_url = get_url_to_form(top_doc_info["doctype"], top_doc_info["name"])
-			context += f"\nLink: {doc_url}"
-			return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
+				doc_url = get_url_to_form(top_doc_info["doctype"], top_doc_info["name"])
+				context += f"\nLink: {doc_url}"
+				return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
+			else:
+				results_string = f"Found multiple potential matches for '{query}'. Please clarify:\n"
+				disambiguation_docs = []
+				for doc in sorted_docs[:limit]:
+					doc_url = get_url_to_form(doc["doctype"], doc["name"])
+					results_string += f"- <a href='{doc_url}' target='_blank'>{doc['label']}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
+					disambiguation_docs.append(doc)
+				return {"type": "disambiguation", "docs": disambiguation_docs, "string_representation": results_string}
 
-		# Otherwise, return the list for disambiguation
-		results_string = f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
-		disambiguation_docs = []
-		for doc in sorted_docs[:limit]:
-			doc_url = get_url_to_form(doc["doctype"], doc["name"])
-			results_string += f"- <a href='{doc_url}' target='_blank'>{doc['label']}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
-			disambiguation_docs.append(doc)
-		return {"type": "disambiguation", "docs": disambiguation_docs, "string_representation": results_string}
+		# --- Final "No Results" Output ---
+		no_results_message = f"I couldn't find any documents matching your query for '{query}'. You could try rephrasing your search, or if you know the specific ID, you can use that directly."
+		return {"type": "no_match", "string_representation": no_results_message}
 
 	except Exception as e:
 		frappe.log_error(
