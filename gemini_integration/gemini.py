@@ -122,45 +122,9 @@ from gemini_integration.tools import (
 	create_task,
 	update_document_status,
 )
-from gemini_integration.utils import configure_gemini, generate_embedding
+from gemini_integration.utils import configure_gemini, generate_embedding, generate_text
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
-
-
-@log_activity
-@handle_errors
-def generate_text(prompt, model_name=None, uploaded_files=None):
-	"""Generates text using a specified Gemini model.
-
-	Args:
-	    prompt (str): The text prompt for the model.
-	    model_name (str, optional): The name of the model to use.
-	        If not provided, the default model from settings will be used.
-	        Defaults to None.
-	    uploaded_files (list, optional): A list of uploaded files to include
-	        in the context. Defaults to None.
-
-	Returns:
-	    str: The generated text from the model.
-	"""
-	if not configure_gemini():
-		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
-
-	if not model_name:
-		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
-
-	try:
-		model_instance = genai.GenerativeModel(model_name)
-		if uploaded_files:
-			response = model_instance.generate_content([prompt] + uploaded_files)
-		else:
-			response = model_instance.generate_content(prompt)
-		return response.text
-	except Exception as e:
-		frappe.log_error(f"Gemini API Error: {e!s}", "Gemini Integration")
-		frappe.throw(
-			"An error occurred while communicating with the Gemini API. Please check the Error Log for details."
-		)
 
 
 @log_activity
@@ -1180,6 +1144,49 @@ def delete_embedding_in_background(doctype, docname):
 			message=f"Failed to delete embedding for {doctype} {docname}: {e!s}\n{frappe.get_traceback()}",
 			title="Gemini Embedding Deletion Error",
 		)
+
+def create_deal_brief_for_opportunity(doc, method):
+    """
+    When a new high-value Opportunity is created, trigger a hook that creates a "Deal Brief".
+    """
+    if doc.opportunity_amount > 5000:
+        customer_details = fetch_erpnext_data(
+            doctype="Customer",
+            filters={"name": doc.party_name},
+            fields=["name", "customer_name", "email", "phone", "mobile_no"],
+        )
+
+        customer_projects = fetch_erpnext_data(
+            doctype="Project",
+            filters={"customer": doc.party_name},
+            fields=["name", "project_name", "status", "priority", "start_date", "end_date"],
+        )
+
+        customer_opportunities = fetch_erpnext_data(
+            doctype="Opportunity",
+            filters={"party_name": doc.party_name},
+            fields=["name", "opportunity_from", "status", "opportunity_amount"],
+        )
+
+        gmail_history = search_gmail(query=doc.party_name)
+
+        prompt = f"""
+        Create a "Deal Brief" summarizing the following opportunity, customer history, and recent interactions.
+        Opportunity: {doc.as_dict()}
+        Customer Details: {customer_details}
+        Customer Projects: {customer_projects}
+        Customer Opportunities: {customer_opportunities}
+        Recent Emails: {gmail_history}
+        """
+
+        deal_brief = generate_text(prompt)
+
+        create_comment(
+            reference_doctype="Opportunity",
+            reference_name=doc.name,
+            comment=deal_brief,
+            confirmed=True,
+        )
 
 def backfill_embeddings():
 	"""

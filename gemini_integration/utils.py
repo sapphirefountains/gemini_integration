@@ -294,3 +294,37 @@ def generate_embedding(text):
 			title="Gemini Embedding Generation Error",
 		)
 		return None
+
+
+def generate_text(prompt, model_name=None, uploaded_files=None):
+	"""Generates text using a specified Gemini model.
+
+	Args:
+	    prompt (str): The text prompt for the model.
+	    model_name (str, optional): The name of the model to use.
+	        If not provided, the default model from settings will be used.
+	        Defaults to None.
+	    uploaded_files (list, optional): A list of uploaded files to include
+	        in the context. Defaults to None.
+
+	Returns:
+	    str: The generated text from the model.
+	"""
+	if not configure_gemini():
+		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
+
+	if not model_name:
+		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
+
+	try:
+		model_instance = genai.GenerativeModel(model_name)
+		if uploaded_files:
+			response = model_instance.generate_content([prompt] + uploaded_files)
+		else:
+			response = model_instance.generate_content(prompt)
+		return response.text
+	except Exception as e:
+		frappe.log_error(f"Gemini API Error: {e!s}", "Gemini Integration")
+		frappe.throw(
+			"An error occurred while communicating with the Gemini API. Please check the Error Log for details."
+		)
