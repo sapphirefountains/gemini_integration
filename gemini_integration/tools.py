@@ -1245,3 +1245,171 @@ def delete_google_calendar_event(event_id: str, confirm: bool = False) -> str:
 		return f"An error occurred with Google Calendar: {error}"
 
 delete_google_calendar_event.service = "calendar"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def create_comment(reference_doctype: str, reference_name: str, comment: str, confirmed: bool = False) -> str:
+	"""
+	Adds a comment to a document or asks for confirmation.
+
+	Args:
+	    reference_doctype (str): The DocType of the document to comment on.
+	    reference_name (str): The name of the document to comment on.
+	    comment (str): The content of the comment.
+	    confirmed (bool): If False, returns a draft. If True, creates the comment.
+
+	Returns:
+	    str: A summary for confirmation or a success/failure message.
+	"""
+	if not confirmed:
+		return f"""**Comment Draft for your approval:**
+
+**On Document:** {reference_doctype} - {reference_name}
+**Comment:**
+{comment}
+
+Please confirm if you want to add this comment."""
+
+	if not frappe.has_permission(reference_doctype, "write", reference_name):
+		return f"You do not have permission to add comments to {reference_doctype} {reference_name}."
+
+	try:
+		new_comment = frappe.new_doc("Comment")
+		new_comment.comment_type = "Comment"
+		new_comment.reference_doctype = reference_doctype
+		new_comment.reference_name = reference_name
+		new_comment.content = comment
+		new_comment.insert(ignore_permissions=True)  # Permissions already checked
+		return f"Comment successfully added to {reference_doctype} {reference_name}."
+	except Exception as e:
+		frappe.log_error(f"Error creating comment: {e}", "Gemini Tool Error")
+		return "An error occurred while creating the comment."
+
+create_comment.service = "erpnext"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def create_task(
+    subject: str,
+    project: str = None,
+    description: str = None,
+    priority: str = None,
+    assigned_to: str = None,
+    exp_end_date: str = None,
+    confirmed: bool = False,
+) -> str:
+    """
+    Creates a new Task in ERPNext or asks for confirmation.
+
+    Args:
+        subject (str): The subject or title of the task.
+        project (str, optional): The project this task belongs to. Defaults to None.
+        description (str, optional): A detailed description of the task. Defaults to None.
+        priority (str, optional): Priority of the task (e.g., 'Low', 'Medium', 'High'). Defaults to None.
+        assigned_to (str, optional): The full name of the person to assign the task to. Defaults to None.
+        exp_end_date (str, optional): The expected end date for the task (e.g., '2024-12-31'). Defaults to None.
+        confirmed (bool): If False, returns a draft. If True, creates the task.
+
+    Returns:
+        str: A summary for confirmation or a success/failure message.
+    """
+    if not confirmed:
+        draft = "**Task Draft for your approval:**\n\n"
+        draft += f"**Subject:** {subject}\n"
+        if project:
+            draft += f"**Project:** {project}\n"
+        if description:
+            draft += f"**Description:** {description}\n"
+        if priority:
+            draft += f"**Priority:** {priority}\n"
+        if assigned_to:
+            draft += f"**Assigned To:** {assigned_to}\n"
+        if exp_end_date:
+            draft += f"**Due Date:** {exp_end_date}\n"
+        draft += "\nPlease confirm if you want to create this task."
+        return draft
+
+    if not frappe.has_permission("Task", "create"):
+        return "You do not have permission to create Tasks."
+
+    try:
+        task = frappe.new_doc("Task")
+        task.subject = subject
+        if project:
+            task.project = project
+        if description:
+            task.description = description
+        if priority and priority in ["Low", "Medium", "High"]:
+            task.priority = priority
+        if exp_end_date:
+            task.exp_end_date = exp_end_date
+
+        assignee_email = None
+        if assigned_to:
+            user = frappe.db.get_value("User", {"full_name": assigned_to}, "email")
+            if user:
+                assignee_email = user
+            else:
+                user = frappe.db.get_value("User", {"email": assigned_to}, "email")
+                if user:
+                    assignee_email = user
+
+            if not assignee_email:
+                return f"Could not find a user with the name or email '{assigned_to}' to assign the task to."
+
+        task.insert(ignore_permissions=True)
+
+        if assignee_email:
+            task.add_assignee(assignee_email)
+
+        task_url = get_url_to_form("Task", task.name)
+        return f"Task '{subject}' created successfully. Link: {task_url}"
+    except Exception as e:
+        frappe.log_error(f"Error creating task: {e}", "Gemini Tool Error")
+        return "An error occurred while creating the task."
+
+create_task.service = "erpnext"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def update_document_status(doctype: str, docname: str, status: str, confirmed: bool = False) -> str:
+    """
+    Updates the status of a document (e.g., Task, Project) or asks for confirmation.
+
+    Args:
+        doctype (str): The DocType of the document to update.
+        docname (str): The name of the document to update.
+        status (str): The new status to set for the document.
+        confirmed (bool): If False, returns a draft. If True, updates the status.
+
+    Returns:
+        str: A summary for confirmation or a success/failure message.
+    """
+    if not confirmed:
+        return f"""**Status Update Confirmation:**
+
+**Document:** {doctype} - {docname}
+**New Status:** {status}
+
+Please confirm if you want to apply this status change."""
+
+    if not frappe.has_permission(doctype, "write", docname):
+        return f"You do not have permission to update the status of {doctype} {docname}."
+
+    try:
+        doc = frappe.get_doc(doctype, docname)
+        doc.status = status
+        doc.save(ignore_permissions=True)  # Permissions already checked
+        doc_url = get_url_to_form(doctype, docname)
+        return f"Status of {doctype} {docname} updated to '{status}'. Link: {doc_url}"
+    except Exception as e:
+        frappe.log_error(f"Error updating document status: {e}", "Gemini Tool Error")
+        return "An error occurred while updating the document status."
+
+update_document_status.service = "erpnext"
