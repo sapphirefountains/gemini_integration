@@ -167,7 +167,10 @@ doc_events = {
 		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
 	},
 	"Opportunity": {
-		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_update": [
+			"gemini_integration.gemini.generate_embedding_for_doc",
+			"gemini_integration.gemini.create_deal_brief_for_opportunity"
+		],
 		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
 	}
 }

@@ -1412,4 +1412,79 @@ Please confirm if you want to apply this status change."""
         frappe.log_error(f"Error updating document status: {e}", "Gemini Tool Error")
         return "An error occurred while updating the document status."
 
+from gemini_integration.utils import generate_text as gemini_generate_text
+
 update_document_status.service = "erpnext"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def generate_text(prompt: str) -> str:
+    """
+    Generates text using the Gemini model. This is a general-purpose tool for text creation.
+
+    Args:
+        prompt (str): The prompt for the model.
+
+    Returns:
+        str: The generated text.
+    """
+    return gemini_generate_text(prompt)
+
+
+generate_text.service = "erpnext"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def project_health_check(project_name: str) -> str:
+    """
+    Provides a health check on a project.
+
+    Args:
+        project_name (str): The name of the project to check.
+
+    Returns:
+        str: A Markdown formatted report of the project's health.
+    """
+    project = search_erpnext_documents(query=project_name, doctype="Project")
+
+    if project["type"] != "confident_match":
+        return project["string_representation"]
+
+    project_data = project["doc"]
+
+    tasks = fetch_erpnext_data(
+        doctype="Task",
+        filters={"project": project_data["name"]},
+        fields=["name", "subject", "status", "exp_end_date"],
+    )
+
+    comments = fetch_erpnext_data(
+        doctype="Comment",
+        filters={"reference_doctype": "Project", "reference_name": project_data["name"]},
+        fields=["name", "comment_by", "content"],
+    )
+
+    emails = search_gmail(query=project_name)
+
+    prompt = f"""
+    Analyze the following project data, tasks, comments, and emails to generate a comprehensive health report in Markdown format.
+    Your analysis should identify potential risks by examining the language and content of the provided information.
+    Look for signs of delays, budget issues, scope creep, negative sentiment, or resource constraints.
+    Structure the report with clear headings for each section (e.g., Budget, Timeline, Risks).
+
+    Project Data: {project_data}
+    Tasks: {tasks}
+    Comments: {comments}
+    Emails: {emails}
+    """
+
+    health_report = gemini_generate_text(prompt)
+
+    return health_report
+
+
+project_health_check.service = "erpnext"
