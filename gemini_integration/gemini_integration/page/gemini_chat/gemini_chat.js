@@ -78,6 +78,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
         .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid var(--gemini-border-color); color: #4b5563; width: 100%; max-width: 100%; margin: 15px 0; padding: 15px; }
         .chat-bubble.thoughts h6 { margin-top: 0; margin-bottom: 10px; font-weight: 600; }
         .chat-bubble.thoughts pre { white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; background-color: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+		.chat-bubble .generated-image { max-width: 100%; border-radius: 10px; margin-top: 10px; }
 
 		.greeting-card {
 			padding: 24px;
@@ -342,7 +343,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 					if (r.message.suggestions && r.message.suggestions.length > 0) {
 						render_clarification_options(r.message.response, r.message.suggestions);
 					} else {
-						add_to_history("gemini", r.message.response);
+						add_to_history("gemini", r.message.response, r.message.image_url);
 					}
 
 					if (r.message.conversation_id && !currentConversation) {
@@ -400,11 +401,11 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	 * Adds a message to the chat history.
 	 * @param {string} role - The role of the message sender ('user', 'gemini', or 'thoughts').
 	 * @param {string} text - The content of the message.
+	 * @param {string} [image_url] - The URL of an image to display.
 	 */
-	const add_to_history = (role, text) => {
+	const add_to_history = (role, text, image_url) => {
 		// If the greeting is visible, remove it.
 		chat_history.find(".greeting-card").remove();
-
 
 		let bubble_wrapper = $(`<div class="chat-bubble-wrapper ${role}"></div>`);
 		let avatar = $(`<div class="avatar"></div>`);
@@ -416,7 +417,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 				avatar.empty();
 				avatar.text(frappe.session.user_abbr);
 				avatar.css("background-color", frappe.get_palette(frappe.session.user_fullname));
-			}
+			};
 
 			if (frappe.session.user_image) {
 				let user_image_url = frappe.session.user_image;
@@ -434,7 +435,6 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 			avatar.css("background-color", "transparent");
 		}
 
-
 		if (text) {
 			if (window.showdown) {
 				let converter = new showdown.Converter();
@@ -444,18 +444,26 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 			}
 		}
 
+		if (image_url) {
+			const image = $(`<img src="${image_url}" class="generated-image">`);
+			bubble.append(image);
+		}
+
 		if (role === 'user') {
 			bubble_wrapper.append(bubble).append(avatar);
 		} else {
 			bubble_wrapper.append(avatar).append(bubble);
 		}
 
-
 		chat_history.append(bubble_wrapper);
 		chat_history.scrollTop(chat_history[0].scrollHeight);
 
 		if (role !== "thoughts") {
-			conversation.push({ role: role, text: text });
+			const message_to_save = { role: role, text: text };
+			if (image_url) {
+				message_to_save.image_url = image_url;
+			}
+			conversation.push(message_to_save);
 		}
 	};
 
