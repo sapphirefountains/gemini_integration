@@ -180,6 +180,50 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 		)
 
 
+@log_activity
+@handle_errors
+def generate_image(prompt):
+	"""Generates an image using the Gemini 2.5 Flash Image model.
+
+	Args:
+	    prompt (str): The text prompt for the image generation.
+
+	Returns:
+	    str: The public URL of the generated image file, or None on failure.
+	"""
+	if not configure_gemini():
+		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
+
+	try:
+		model_instance = genai.GenerativeModel("gemini-2.5-flash-image")
+		response = model_instance.generate_content(prompt)
+
+		image_data = None
+		for part in response.candidates[0].content.parts:
+			if part.inline_data:
+				image_data = part.inline_data.data
+				break
+
+		if image_data:
+			# Create a unique filename
+			file_name = f"gemini-generated-{frappe.utils.now_datetime().strftime('%Y%m%d-%H%M%S')}.png"
+			# Create a new Frappe File document
+			file_doc = frappe.new_doc("File")
+			file_doc.file_name = file_name
+			file_doc.content = image_data
+			file_doc.is_private = 0  # Make it a public file
+			file_doc.save(ignore_permissions=True)
+			return file_doc.file_url
+
+		return None
+
+	except Exception as e:
+		frappe.log_error(f"Gemini Image Generation API Error: {e!s}", "Gemini Integration")
+		frappe.throw(
+			"An error occurred while generating the image. Please check the Error Log for details."
+		)
+
+
 
 
 # --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
@@ -301,6 +345,18 @@ def generate_chat_response(prompt, model=None, conversation_id=None, use_google_
 		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
 		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
 
+	# --- Image Generation Logic ---
+	image_url = None
+	image_keywords = [
+		"generate a picture of", "create a picture of", "generate an image of",
+		"create an image of", "show me a picture of", "draw a picture of",
+		"generate a photo of", "create a photo of", "show me an image of"
+	]
+	is_image_request = any(keyword in prompt.lower() for keyword in image_keywords)
+
+	if is_image_request:
+		image_url = generate_image(prompt)
+	# --- End Image Generation Logic ---
 
 	from gemini_integration.mcp import mcp
 
@@ -535,7 +591,7 @@ CONTEXT:
 	except ValueError:
 		# This occurs if the response has no text part (e.g., due to safety filters
 		# or a function call without a final text response).
-		final_response_text = "No response from the model."
+		final_response_text = "Here is the image you requested." if image_url else "No response from the model."
 
 	# If tools were called, log the complete trace for debugging.
 	if tool_calls_log:
@@ -556,14 +612,23 @@ CONTEXT:
 	# 6. Save the conversation by appending the latest user prompt and model response
 	# to the history before saving.
 	conversation_history.append({"role": "user", "text": prompt})
-	conversation_history.append({"role": "gemini", "text": final_response_text})
+
+	gemini_response_message = {"role": "gemini", "text": final_response_text}
+	if image_url:
+		gemini_response_message["image_url"] = image_url
+	conversation_history.append(gemini_response_message)
+
 	conversation_id = save_conversation(conversation_id, prompt, conversation_history)
 
-	return {
+	final_return_payload = {
 		"response": final_response_text,
 		"thoughts": thoughts,
 		"conversation_id": conversation_id,
 	}
+	if image_url:
+		final_return_payload["image_url"] = image_url
+
+	return final_return_payload
 
 
 def save_conversation(conversation_id, title, conversation):
