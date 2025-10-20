@@ -32,9 +32,9 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
         #conversations-list .list-group-item:hover { background-color: #e8f0fe; }
         #conversations-list .list-group-item.active { background-color: #d2e3fc; font-weight: 500; }
 
-        .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; padding: 0 20px; }
-        .chat-header { padding: 15px 0; display: flex; justify-content: space-between; align-items: center; background-color: var(--gemini-header-bg); }
-        .chat-history { flex-grow: 1; overflow-y: auto; padding: 20px 0; }
+        .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; }
+		.page-header { padding: 15px 20px 0; }
+        .chat-history { flex-grow: 1; overflow-y: auto; padding: 20px; }
 
 		.chat-bubble-wrapper {
 			display: flex;
@@ -99,10 +99,12 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
         .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		.chat-input-area textarea:focus { box-shadow: none; }
 		.google-search-toggle { display: flex; align-items: center; gap: 8px; color: var(--gemini-light-text); }
-		.send-btn { border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+		.send-btn { border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
-        .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
-        .google-connect-btn { margin-left: auto; border-radius: 20px; }
+		.sidebar-controls { display: flex; flex-direction: column; gap: 10px; padding-top: 15px; border-top: 1px solid var(--gemini-border-color); }
+		.sidebar-controls .btn { width: 100%; text-align: left; justify-content: flex-start; }
+		.sidebar-controls .model-selector-container .form-group { margin-bottom: 0; }
+		.sidebar-controls .google-connect-btn { border-radius: 20px; }
         .sidebar-toggle-btn { display: none; }
 
         @media (max-width: 768px) {
@@ -129,23 +131,24 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
                         <button id="close-sidebar-btn" class="btn btn-default btn-sm visible-xs"><i class="fa fa-times"></i></button>
                     </div>
                 </div>
-                <ul id="conversations-list" class="list-group"></ul>
+                <ul id="conversations-list" class="list-group" style="flex-grow: 1;"></ul>
+				<div class="sidebar-controls">
+					<div class="model-selector-container"></div>
+					<button class="btn btn-default btn-sm google-connect-btn">
+						<i class="fa fa-google" style="margin-right: 5px;"></i>
+						Connect Google Account
+					</button>
+					<button class="btn btn-default btn-sm help-btn" title="Help">
+						<i class="fa fa-question-circle-o" style="margin-right: 5px;"></i> Help
+					</button>
+				</div>
             </div>
             <div class="gemini-chat-wrapper">
-                <div class="chat-header">
-                     <button class="btn btn-default btn-sm sidebar-toggle-btn">
+				<div class="page-header">
+					 <button class="btn btn-default btn-sm sidebar-toggle-btn">
                         <i class="fa fa-bars"></i>
                     </button>
-                    <div class="model-selector-area flex-grow-1">
-                         <button class="btn btn-default btn-sm help-btn" title="Help">
-                            <i class="fa fa-question-circle-o"></i> Help
-                        </button>
-                        <button class="btn btn-default btn-sm google-connect-btn">
-							<i class="fa fa-google" style="margin-right: 5px;"></i>
-							Connect Google Account
-						</button>
-                    </div>
-                </div>
+				</div>
                 <div class="chat-history">
 					<!-- Greeting will be injected here -->
 				</div>
@@ -177,7 +180,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	let conversation = [];
 
 	page.model_selector = frappe.ui.form.make_control({
-		parent: $(page.body).find(".model-selector-area"),
+		parent: $(page.body).find(".model-selector-container"),
 		df: {
 			fieldtype: "Select",
 			label: "Model",
