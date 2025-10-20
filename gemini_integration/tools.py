@@ -16,9 +16,45 @@ from googleapiclient.discovery import build
 import json
 from googleapiclient.errors import HttpError
 from thefuzz import fuzz, process
+import numpy as np
 
 from gemini_integration.mcp import mcp
 from gemini_integration.utils import get_user_credentials, handle_errors, log_activity
+from gemini_integration.gemini import generate_embedding
+
+
+def cosine_similarity(v1, v2):
+	"""Calculates the cosine similarity between two vectors."""
+	return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+
+
+def find_similar_documents(query_embedding, doctype=None, limit=5):
+	"""Finds similar documents using vector similarity search."""
+	filters = {}
+	if doctype:
+		filters["ref_doctype"] = doctype
+
+	all_embeddings = frappe.get_all(
+		"Gemini Embedding",
+		fields=["ref_doctype", "ref_docname", "embedding"],
+		filters=filters,
+	)
+
+	if not all_embeddings:
+		return []
+
+	scored_docs = []
+	for emb_info in all_embeddings:
+		stored_embedding = np.array(json.loads(emb_info["embedding"]))
+		score = cosine_similarity(query_embedding, stored_embedding)
+		if score > 0.75:  # Similarity threshold
+			scored_docs.append({
+				"doctype": emb_info["ref_doctype"],
+				"name": emb_info["ref_docname"],
+				"score": score,
+			})
+
+	return sorted(scored_docs, key=lambda x: x["score"], reverse=True)[:limit]
 
 
 def _get_doctype_fields(doctype_name: str) -> list[str]:
@@ -260,7 +296,23 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	    dict: A dictionary containing the search results, structured for programmatic use.
 	"""
 	try:
-		# --- Start: Prioritized Direct Document ID Lookup ---
+		# --- Start: Semantic Search ---
+		query_embedding = generate_embedding(query)
+		if query_embedding:
+			similar_docs = find_similar_documents(np.array(query_embedding), doctype, limit)
+			if similar_docs:
+				results_string = "Found the following documents based on semantic similarity:\n"
+				for doc in similar_docs:
+					meta = frappe.get_meta(doc["doctype"])
+					title_field = meta.get_title_field()
+					label = (
+						title_field and frappe.db.get_value(doc["doctype"], doc["name"], title_field)
+					) or doc["name"]
+					results_string += f"- {label} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
+				return {"type": "disambiguation", "docs": similar_docs, "string_representation": results_string}
+		# --- End: Semantic Search ---
+
+		# --- Fallback to Fuzzy Search ---
 		# If a query looks like a specific document ID, try to fetch it directly first.
 		doctypes_for_direct_check = (
 			[doctype]
@@ -302,16 +354,9 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					context += f"\nLink: {doc_url}"
 					return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
 			except Exception:
-				# This could fail if the doctype in the default list doesn't exist in the instance.
-				# We can safely ignore it and proceed to the broader search.
 				pass
-		# --- End: Prioritized Direct Document ID Lookup ---
 
-		# If no direct match is found, proceed with the original fuzzy search logic.
 		limit = int(limit)
-
-		# If a specific doctype is provided, search only that. Otherwise, search a default list
-		# of common doctypes to find the most relevant document.
 		default_doctypes = [
 			"Project",
 			"Customer",
@@ -329,14 +374,11 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 			try:
 				meta = frappe.get_meta(dt)
 			except frappe.DoesNotExistError:
-				# This can happen if a default doctype is not present in the user's instance.
-				# We can silently ignore it and continue.
 				continue
 
 			fields_to_fetch = _get_doctype_fields(dt)
 			title_field = meta.get_title_field()
 			search_fields = meta.get_search_fields()
-
 			field_weights = {"name": 3.0}
 			if title_field and title_field in fields_to_fetch:
 				field_weights[title_field] = 3.0
@@ -345,50 +387,26 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					field_weights[f] = 1.5
 
 			all_docs = frappe.get_all(dt, fields=fields_to_fetch)
-
 			for doc in all_docs:
 				total_score = 0
-				full_text = " ".join(
-					[str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights]
-				)
+				full_text = " ".join([str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights])
 				total_score += fuzz.token_set_ratio(query, full_text)
-
 				for field, weight in field_weights.items():
 					field_value = str(doc.get(field, ""))
 					if field_value:
 						total_score += fuzz.token_set_ratio(query, field_value) * weight
 
-				feedback_score = frappe.db.sql(
-					"""
-                    SELECT SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END)
-                    FROM `tabGemini Search Feedback`
-                    WHERE doctype_name = %s AND document_name = %s
-                """,
-					(dt, doc.name),
-					as_list=True,
-				)
-				if feedback_score and feedback_score[0][0]:
-					total_score += feedback_score[0][0] * 10
-
-				# Add a threshold to only include reasonably confident matches
 				if total_score > 70:
 					label = (title_field and doc.get(title_field)) or doc.name
-					all_scored_docs.append(
-						{"name": doc.name, "doctype": dt, "score": total_score, "label": label}
-					)
+					all_scored_docs.append({"name": doc.name, "doctype": dt, "score": total_score, "label": label})
 
-		# Sort all collected documents by score
 		sorted_docs = sorted(all_scored_docs, key=lambda x: x["score"], reverse=True)
-
 		if not sorted_docs:
 			search_scope = f"in DocType '{doctype}'" if doctype else "across the system"
 			string_repr = f"No documents {search_scope} found matching your query '{query}'."
 			return {"type": "no_match", "string_representation": string_repr}
 
-		# If the top match is significantly better than the second, retrieve its full context
-		if len(sorted_docs) == 1 or (
-			len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5
-		):
+		if len(sorted_docs) == 1 or (len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5):
 			top_doc_info = sorted_docs[0]
 			doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
 			doc_dict = json.loads(frappe.as_json(doc))
@@ -403,17 +421,11 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 			context += f"\nLink: {doc_url}"
 			return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
 
-		# Otherwise, return a list of top results for disambiguation
-		results_string = (
-			f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
-		)
+		results_string = f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
 		disambiguation_docs = []
 		for doc in sorted_docs[:limit]:
-			results_string += (
-				f"- {doc['label']} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
-			)
+			results_string += f"- {doc['label']} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 			disambiguation_docs.append(doc)
-
 		return {"type": "disambiguation", "docs": disambiguation_docs, "string_representation": results_string}
 
 	except Exception as e:

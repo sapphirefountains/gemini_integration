@@ -99,6 +99,84 @@ def generate_text(prompt, model_name=None, uploaded_files=None, generation_confi
 		)
 
 
+@log_activity
+@handle_errors
+def generate_embedding(text, model_name="embedding-001"):
+	"""Generates an embedding for a given text.
+
+	Args:
+		text (str): The text to embed.
+		model_name (str, optional): The name of the embedding model to use.
+			Defaults to 'embedding-001'.
+
+	Returns:
+		list[float] or None: The generated embedding vector, or None if an error occurs.
+	"""
+	if not configure_gemini():
+		frappe.throw("Gemini integration is not configured.")
+	try:
+		result = genai.embed_content(model=f"models/{model_name}", content=text)
+		return result["embedding"]
+	except Exception as e:
+		frappe.log_error(f"Gemini Embedding Error: {e!s}", "Gemini Integration")
+		return None
+
+
+def get_text_representation_for_doc(doc):
+	"""Creates a unified text string from a document's fields for embedding.
+
+	Args:
+		doc (frappe.model.document.Document): The document to process.
+
+	Returns:
+		str: A single string concatenating the document's important fields.
+	"""
+	text_parts = []
+	meta = frappe.get_meta(doc.doctype)
+	for field in meta.fields:
+		if field.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Select"]:
+			value = doc.get(field.fieldname)
+			if value:
+				text_parts.append(f"{field.label}: {value}")
+	return "\n".join(text_parts)
+
+
+@log_activity
+@handle_errors
+def generate_embedding_for_doc(doc, on_save=True):
+	"""Generates and saves an embedding for a specific document.
+
+	Args:
+		doc (frappe.model.document.Document): The document to embed.
+		on_save (bool): A flag to indicate if the call is from a save hook.
+	"""
+	text_representation = get_text_representation_for_doc(doc)
+	if not text_representation:
+		return
+
+	embedding = generate_embedding(text_representation)
+	if not embedding:
+		return
+
+	# Save the embedding
+	embedding_doc_name = frappe.db.get_value(
+		"Gemini Embedding",
+		{"ref_doctype": doc.doctype, "ref_docname": doc.name},
+		"name",
+	)
+	if embedding_doc_name:
+		embedding_doc = frappe.get_doc("Gemini Embedding", embedding_doc_name)
+	else:
+		embedding_doc = frappe.new_doc("Gemini Embedding")
+		embedding_doc.ref_doctype = doc.doctype
+		embedding_doc.ref_docname = doc.name
+
+	embedding_doc.embedding = json.dumps(embedding)
+	embedding_doc.save(ignore_permissions=True)
+	if on_save:
+		frappe.db.commit()
+
+
 # --- URL CONTEXT FETCHING ---
 
 

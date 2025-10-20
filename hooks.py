@@ -137,13 +137,40 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Project": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Customer": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Supplier": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Item": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Sales Order": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Purchase Order": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Lead": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	},
+	"Opportunity": {
+		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+	}
+}
 
 # Scheduled Tasks
 # ---------------

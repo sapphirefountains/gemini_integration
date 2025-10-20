@@ -182,3 +182,54 @@ def get_dynamic_doctype_map() -> dict:
 
 	frappe.cache().set_value(cache_key, doctype_map, expires_in_sec=3600)
 	return doctype_map
+
+
+def delete_embedding_for_doc(doc, on_trash=True):
+	"""Deletes the embedding for a specific document.
+
+	Args:
+		doc (frappe.model.document.Document): The document whose embedding should be deleted.
+		on_trash (bool): A flag to indicate if the call is from a trash hook.
+	"""
+	try:
+		embedding_doc_name = frappe.db.get_value(
+			"Gemini Embedding",
+			{"ref_doctype": doc.doctype, "ref_docname": doc.name},
+			"name",
+		)
+		if embedding_doc_name:
+			frappe.delete_doc("Gemini Embedding", embedding_doc_name, ignore_permissions=True)
+			if on_trash:
+				frappe.db.commit()
+	except Exception as e:
+		frappe.log_error(f"Error deleting embedding for {doc.doctype} {doc.name}: {e!s}")
+
+
+def backfill_embeddings(doctypes=None):
+	"""Generates embeddings for all existing documents of the specified DocTypes."""
+	from gemini_integration.gemini import generate_embedding_for_doc
+
+	if not doctypes:
+		doctypes = [
+			"Project",
+			"Customer",
+			"Supplier",
+			"Item",
+			"Sales Order",
+			"Purchase Order",
+			"Lead",
+			"Opportunity",
+		]
+
+	for doctype in doctypes:
+		for doc in frappe.get_all(doctype):
+			doc_obj = frappe.get_doc(doctype, doc.name)
+			generate_embedding_for_doc(doc_obj, on_save=False)
+	frappe.db.commit()
+
+
+@frappe.whitelist()
+def trigger_backfill():
+	"""Whitelist function to trigger the backfill process from the UI."""
+	frappe.enqueue(backfill_embeddings)
+	return {"status": "success", "message": "Embedding backfill process has been started."}
