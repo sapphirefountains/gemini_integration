@@ -8,6 +8,8 @@
   "ref_doctype",
   "ref_docname",
   "status",
+  "chunk_number",
+  "content",
   "embedding"
  ],
  "fields": [
@@ -36,6 +38,16 @@
    "fieldname": "embedding",
    "fieldtype": "Long Text",
    "label": "Embedding"
+  },
+  {
+   "fieldname": "chunk_number",
+   "fieldtype": "Int",
+   "label": "Chunk Number"
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Long Text",
+   "label": "Content"
   }
  ],
  "index_web_pages_for_search": 1,

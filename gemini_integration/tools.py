@@ -29,30 +29,52 @@ def cosine_similarity(v1, v2):
 
 
 def find_similar_documents(query_embedding, doctype=None, limit=5):
-	"""Finds similar documents using vector similarity search."""
+	"""Finds similar documents using vector similarity search on document chunks."""
 	filters = {}
 	if doctype:
 		filters["ref_doctype"] = doctype
 
 	all_embeddings = frappe.get_all(
 		"Gemini Embedding",
-		fields=["ref_doctype", "ref_docname", "embedding"],
+		fields=["ref_doctype", "ref_docname", "embedding", "content"],
 		filters=filters,
 	)
 
 	if not all_embeddings:
 		return []
 
-	scored_docs = []
+	# Calculate scores for all chunks
+	all_matching_chunks = []
 	for emb_info in all_embeddings:
-		stored_embedding = np.array(json.loads(emb_info["embedding"]))
+		# Skip if embedding is missing or invalid
+		if not emb_info.get("embedding") or not isinstance(emb_info["embedding"], str):
+			continue
+		try:
+			stored_embedding = np.array(json.loads(emb_info["embedding"]))
+		except (json.JSONDecodeError, TypeError):
+			continue
+
 		score = cosine_similarity(query_embedding, stored_embedding)
 		if score > 0.75:  # Similarity threshold
-			scored_docs.append({
+			all_matching_chunks.append({
 				"doctype": emb_info["ref_doctype"],
 				"name": emb_info["ref_docname"],
 				"score": score,
+				"content": emb_info.get("content", ""),
 			})
+
+	if not all_matching_chunks:
+		return []
+
+	# Group chunks by document and find the best chunk for each document
+	best_chunks_per_doc = {}
+	for chunk in all_matching_chunks:
+		doc_key = (chunk["doctype"], chunk["name"])
+		if doc_key not in best_chunks_per_doc or chunk["score"] > best_chunks_per_doc[doc_key]["score"]:
+			best_chunks_per_doc[doc_key] = chunk
+
+	# Convert the dictionary of best chunks back to a list
+	scored_docs = list(best_chunks_per_doc.values())
 
 	return sorted(scored_docs, key=lambda x: x["score"], reverse=True)[:limit]
 
@@ -308,7 +330,12 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					label = (
 						title_field and frappe.db.get_value(doc["doctype"], doc["name"], title_field)
 					) or doc["name"]
-					results_string += f"- {label} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
+					results_string += (
+						f"- {label} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
+					)
+					# Add the matching chunk content to the output
+					if doc.get("content"):
+						results_string += f"  - Matching Content: \"...{doc['content'][:150]}...\"\n"
 				return {"type": "disambiguation", "docs": similar_docs, "string_representation": results_string}
 		# --- End: Semantic Search ---
 
