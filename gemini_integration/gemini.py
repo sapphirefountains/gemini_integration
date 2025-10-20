@@ -406,7 +406,7 @@ def _linkify_erpnext_docs(text):
 @log_activity
 @handle_errors
 def generate_chat_response(
-	prompt, model=None, conversation_id=None, use_google_search=False, stream=False, user=None
+	prompt, model=None, conversation_id=None, use_google_search=False, stream=False, user=None, context=None
 ):
 	"""Handles chat interactions by routing them to the correct MCP tools.
 
@@ -558,6 +558,9 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 3. If the tool returns a list of potential matches, you MUST present this list to the user for clarification. Do NOT treat it as a final answer.
 4. Clearly separate information that comes from ERPNext tools from your general knowledge. For example, say 'I found the following in ERPNext...' when presenting tool results.
 """
+	if context:
+		system_instruction += f"\n\n--- CURRENT PAGE CONTEXT ---\nThe user is currently viewing the following document. Use this information to answer their questions.\n{context}\n--- END CONTEXT ---"
+
 
 	# Find the most recent tool context in the history and add it to the system prompt.
 	latest_context = None
