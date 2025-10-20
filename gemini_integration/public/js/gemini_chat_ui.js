@@ -313,7 +313,12 @@ function createGeminiChatUI(parentElement, options = {}) {
     };
 
     send_btn.on("click", () => send_message());
-    chat_input.on("keydown", (e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send_message()));
+    chat_input.on("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send_message();
+        }
+    });
 
     const load_conversations = () => {
         frappe.call({
