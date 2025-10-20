@@ -757,6 +757,13 @@ You are an AI assistant for ERPNext. Your primary function is to answer the user
 							final_response_text = synthesis_response.text
 						except ValueError:
 							final_response_text = "The model returned a response that could not be displayed."
+
+						# If streaming, send the synthesized response back to the client.
+						if stream:
+							frappe.publish_realtime(
+								"gemini_chat_update", {"message": final_response_text}, user=user
+							)
+
 						tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": factual_data, "action": "Safe Synthesis Triggered"})
 						current_stream.resolve()
 						break
