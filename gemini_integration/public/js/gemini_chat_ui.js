@@ -35,6 +35,21 @@ function createGeminiChatUI(parentElement) {
             font-family: var(--gemini-font-family);
             display: flex; height: 100%; position: relative; overflow: hidden; background-color: var(--gemini-bg-color);
         }
+        .gemini-chat-page .page-content {
+            height: calc(100vh - var(--page-head-height) - var(--margin-top) - var(--margin-bottom) - 2px);
+            display: flex;
+            flex-direction: column;
+        }
+        .gemini-chat-page .page-content .layout-main-section {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        .gemini-chat-page #gemini-chat-container {
+            flex-grow: 1;
+        }
         #gemini-chat-container .conversations-sidebar { width: 260px; border-right: 1px solid var(--gemini-border-color); padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; background-color: var(--gemini-sidebar-bg); }
         #gemini-chat-container .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         #gemini-chat-container #new-chat-button { border-radius: 20px; }
