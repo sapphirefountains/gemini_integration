@@ -42,6 +42,5 @@
  "module": "Gemini Integration",
  "name": "Embedding Field Weight",
  "owner": "Administrator",
- "permissions": [],
- "track_changes": 1
+ "permissions": []
 }
