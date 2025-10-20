@@ -29,7 +29,7 @@ app_license = "mit"
 app_include_js = [
     "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js",
     "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js",
-    "public/js/gemini_chat_ui.js",
+    "/assets/gemini_integration/js/gemini_chat_ui.js",
     "/assets/gemini_integration/js/global_chat.js",
 ]
 
@@ -45,7 +45,7 @@ app_include_js = [
 # webform_include_css = {"doctype": "public/css/doctype.css"}
 
 # include js in page
-page_js = {"gemini-chat" : "public/js/gemini_chat_ui.js"}
+page_js = {"gemini-chat" : "/assets/gemini_integration/js/gemini_chat_ui.js"}
 
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
