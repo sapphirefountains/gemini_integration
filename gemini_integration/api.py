@@ -79,6 +79,7 @@ def chat(prompt=None, model=None, conversation_id=None, use_google_search=False)
 @frappe.whitelist()
 def stream_chat(prompt=None, model=None, conversation_id=None, use_google_search=False):
 	"""Handles streaming chat interactions with the Gemini API."""
+	frappe.log_error("stream_chat called", "Gemini Debug")
 	if not prompt:
 		frappe.throw("A prompt is required.")
 
