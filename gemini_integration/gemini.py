@@ -638,12 +638,21 @@ CONTEXT:
 
 					# If the model wants to search ERPNext but didn't specify a DocType,
 					# we'll try to infer one from the user's prompt to improve accuracy.
-					if tool_name == "search_erpnext_documents" and not tool_args.get("doctype"):
-						detected_doctype = _get_doctype_from_prompt(prompt)
-						if detected_doctype:
-							tool_args["doctype"] = detected_doctype
+					if tool_name == "search_erpnext_documents":
+						if not tool_args.get("doctype"):
+							detected_doctype = _get_doctype_from_prompt(prompt)
+							if detected_doctype:
+								tool_args["doctype"] = detected_doctype
+								frappe.log_info(
+									f"Inferred DocType '{detected_doctype}' for search from prompt.",
+									"Gemini Integration",
+								)
+						# If the model is asking for a broad summary without a specific query,
+						# use the original prompt as the query for semantic search.
+						if not tool_args.get("query"):
+							tool_args["query"] = prompt
 							frappe.log_info(
-								f"Inferred DocType '{detected_doctype}' for search from prompt.",
+								"No query found for search. Using the original prompt as the query.",
 								"Gemini Integration",
 							)
 
