@@ -3,6 +3,7 @@ import functools
 import json
 import logging
 import traceback
+import re
 from datetime import datetime, timedelta
 from io import BytesIO
 from email.mime.text import MIMEText
@@ -321,6 +322,33 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 	try:
 		limit = int(limit)
 
+		# --- Direct ID Search ---
+		# Use regex to detect if the query is a likely DocType name/ID and check if it exists.
+		# This is much faster than doing a full fuzzy or semantic search.
+		# The regex looks for patterns like 'PRJ-00219'.
+		if re.match(r"^[A-Z]{2,5}-?\d{1,9}$", query.strip(), re.IGNORECASE):
+			doctypes_for_direct_check = (
+				[doctype] if doctype else frappe.get_all("DocType", filters={"issingle": 0}, pluck="name")
+			)
+			for dt in doctypes_for_direct_check:
+				if frappe.db.exists(dt, query):
+					doc = frappe.get_doc(dt, query)
+					doc_dict = json.loads(frappe.as_json(doc))
+					meta = frappe.get_meta(dt)
+					title_field = meta.get_title_field()
+					label = (title_field and doc.get(title_field)) or doc.name
+
+					context = f"Found an exact match for '{query}': {label} (ID: {doc.name}, Type: {dt}).\n\nFull details:\n"
+					for field, value in doc_dict.items():
+						if value:
+							if isinstance(value, list):
+								context += f"- {field}: (Contains a list of {len(value)} items)\n"
+							else:
+								context += f"- {field}: {value}\n"
+					doc_url = get_url_to_form(dt, doc.name)
+					context += f"\nLink: {doc_url}"
+					return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
+
 		# --- Semantic Search ---
 		query_embedding = generate_embedding(query)
 		if query_embedding:
@@ -357,29 +385,6 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 				return {"type": "disambiguation", "docs": similar_docs, "string_representation": results_string}
 
 		# --- Fallback to Fuzzy Search ---
-		# First, check for an exact ID match
-		doctypes_for_direct_check = (
-			[doctype] if doctype else frappe.get_all("DocType", filters={"issingle": 0}, pluck="name")
-		)
-		for dt in doctypes_for_direct_check:
-			if frappe.db.exists(dt, query):
-				doc = frappe.get_doc(dt, query)
-				doc_dict = json.loads(frappe.as_json(doc))
-				meta = frappe.get_meta(dt)
-				title_field = meta.get_title_field()
-				label = (title_field and doc.get(title_field)) or doc.name
-
-				context = f"Found an exact match for '{query}': {label} (ID: {doc.name}, Type: {dt}).\n\nFull details:\n"
-				for field, value in doc_dict.items():
-					if value:
-						if isinstance(value, list):
-							context += f"- {field}: (Contains a list of {len(value)} items)\n"
-						else:
-							context += f"- {field}: {value}\n"
-				doc_url = get_url_to_form(dt, doc.name)
-				context += f"\nLink: {doc_url}"
-				return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
-
 		# If no exact match, perform a fuzzy search
 		default_doctypes = [
 			"Project", "Customer", "Supplier", "Item", "Sales Order",
@@ -392,6 +397,27 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 			try:
 				meta = frappe.get_meta(dt)
 				fields_to_fetch = _get_doctype_fields(dt)
+
+				# Build OR filters for a LIKE query to find candidate documents.
+				# This is more efficient than fetching all documents and scoring them in Python.
+				text_like_fields = []
+				for field_name in fields_to_fetch:
+					df = meta.get_field(field_name)
+					if df and df.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Select", "Link", "Read Only"]:
+						text_like_fields.append(field_name)
+
+				or_filters = [[field, "like", f"%{query}%"] for field in text_like_fields]
+
+				if not or_filters:
+					continue
+
+				# Fetch candidate documents from the database
+				candidate_docs = frappe.get_all(dt, fields=fields_to_fetch, or_filters=or_filters, limit_page_length=20)
+
+				if not candidate_docs:
+					continue
+
+				# Score the candidates using fuzzy matching
 				title_field = meta.get_title_field()
 				search_fields = meta.get_search_fields()
 				field_weights = {"name": 3.0}
@@ -401,19 +427,22 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					if f not in field_weights and f in fields_to_fetch:
 						field_weights[f] = 1.5
 
-				all_docs = frappe.get_all(dt, fields=fields_to_fetch)
-				for doc in all_docs:
+				for doc in candidate_docs:
 					total_score = 0
+					# Combine all field values for a general score
 					full_text = " ".join([str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights])
 					total_score += fuzz.token_set_ratio(query, full_text)
+
+					# Add weighted scores for important fields
 					for field, weight in field_weights.items():
 						field_value = str(doc.get(field, ""))
 						if field_value:
 							total_score += fuzz.token_set_ratio(query, field_value) * weight
 
-					if total_score > 70:
+					if total_score > 70: # Confidence threshold
 						label = (title_field and doc.get(title_field)) or doc.name
 						all_scored_docs.append({"name": doc.name, "doctype": dt, "score": total_score, "label": label})
+
 			except frappe.DoesNotExistError:
 				continue
 
