@@ -280,6 +280,79 @@ def get_erpnext_file_content(file_url):
 		return None
 
 
+def _get_doctype_from_prompt(prompt: str) -> str | None:
+	"""Analyzes a prompt to find the best matching DocType name using keywords.
+
+	Args:
+	    prompt (str): The user's input prompt.
+
+	Returns:
+	    str | None: The best matching DocType name, or None if no clear match is found.
+	"""
+	from gemini_integration.tools import find_best_match_for_doctype
+
+	# A mapping of keywords to the DocType they most likely represent.
+	# The keys are keywords/synonyms, and the values are the official DocType names.
+	doctype_keywords = {
+		"project": "Project",
+		"projects": "Project",
+		"customer": "Customer",
+		"customers": "Customer",
+		"supplier": "Supplier",
+		"suppliers": "Supplier",
+		"item": "Item",
+		"items": "Item",
+		"product": "Item",
+		"products": "Item",
+		"sales order": "Sales Order",
+		"sales orders": "Sales Order",
+		"so": "Sales Order",
+		"purchase order": "Purchase Order",
+		"purchase orders": "Purchase Order",
+		"po": "Purchase Order",
+		"lead": "Lead",
+		"leads": "Lead",
+		"opportunity": "Opportunity",
+		"opportunities": "Opportunity",
+		"task": "Task",
+		"tasks": "Task",
+		"issue": "Issue",
+		"issues": "Issue",
+		"quotation": "Quotation",
+		"quotations": "Quotation",
+		"sales invoice": "Sales Invoice",
+		"sales invoices": "Sales Invoice",
+		"si": "Sales Invoice",
+		"purchase invoice": "Purchase Invoice",
+		"purchase invoices": "Purchase Invoice",
+		"pi": "Purchase Invoice",
+		"employee": "Employee",
+		"employees": "Employee",
+	}
+
+	# Find all keywords present in the prompt (case-insensitive)
+	found_keywords = []
+	for keyword in doctype_keywords:
+		# Use word boundaries to avoid matching parts of words (e.g., 'so' in 'some')
+		if re.search(rf"\b{re.escape(keyword)}\b", prompt, re.IGNORECASE):
+			found_keywords.append(keyword)
+
+	if not found_keywords:
+		return None
+
+	# If multiple keywords are found, we could add logic to prioritize.
+	# For now, we'll use the first one found that maps to a valid DocType.
+	for keyword in found_keywords:
+		potential_doctype = doctype_keywords[keyword]
+		# Verify that the mapped DocType actually exists in the system
+		# by calling the tool function directly.
+		matched_doctype = find_best_match_for_doctype(potential_doctype)
+		if matched_doctype:
+			return matched_doctype
+
+	return None
+
+
 def _uppercase_schema_types(schema):
 	"""Recursively converts all 'type' values in a JSON schema to uppercase."""
 	if isinstance(schema, dict):
@@ -562,6 +635,17 @@ CONTEXT:
 				if function_call:
 					tool_name = function_call.name
 					tool_args = {key: value for key, value in function_call.args.items()}
+
+					# If the model wants to search ERPNext but didn't specify a DocType,
+					# we'll try to infer one from the user's prompt to improve accuracy.
+					if tool_name == "search_erpnext_documents" and not tool_args.get("doctype"):
+						detected_doctype = _get_doctype_from_prompt(prompt)
+						if detected_doctype:
+							tool_args["doctype"] = detected_doctype
+							frappe.log_info(
+								f"Inferred DocType '{detected_doctype}' for search from prompt.",
+								"Gemini Integration",
+							)
 
 					# Log the raw function call for debugging
 					frappe.log_error(
