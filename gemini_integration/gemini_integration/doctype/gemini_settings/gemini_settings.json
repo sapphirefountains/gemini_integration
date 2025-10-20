@@ -12,7 +12,8 @@
   "system_instruction",
   "log_level",
   "url_blacklist",
-  "contact_confidence_threshold"
+  "contact_confidence_threshold",
+  "embedding_doctypes"
  ],
  "fields": [
   {
@@ -59,6 +60,13 @@
    "label": "Contact Confidence Threshold",
    "default": "0.95",
    "description": "The confidence level required to automatically select a contact when searching by name (0.0 to 1.0)."
+  },
+  {
+   "fieldname": "embedding_doctypes",
+   "fieldtype": "Table MultiSelect",
+   "label": "DocTypes for Embedding",
+   "options": "DocType",
+   "description": "Select the DocTypes that should be indexed for semantic search."
   }
  ],
  "issingle": 1,

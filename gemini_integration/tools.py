@@ -419,6 +419,16 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 						context += f"- {field}: {value}\n"
 			doc_url = get_url_to_form(top_doc_info["doctype"], top_doc_info["name"])
 			context += f"\nLink: {doc_url}"
+
+			# Check the status of the embedding
+			embedding_status = frappe.db.get_value(
+				"Gemini Embedding",
+				{"ref_doctype": top_doc_info["doctype"], "ref_docname": top_doc_info["name"]},
+				"status"
+			)
+			if embedding_status == "Pending":
+				context += "\n\n**Note:** The content of this document has been updated recently and is currently being re-indexed for semantic search. The information above is from the latest saved version."
+
 			return {"type": "confident_match", "doc": doc_dict, "string_representation": context}
 
 		results_string = f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
