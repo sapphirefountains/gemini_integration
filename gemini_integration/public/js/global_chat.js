@@ -82,12 +82,14 @@ function setupGeminiChatWidget() {
         if (chatOverlay.classList.contains("visible")) {
             const pageContext = getPageContext();
             if (!isChatUiInitialized) {
-                loadScript("/assets/gemini_integration/js/gemini_chat_ui.js", () => {
-                    createGeminiChatUI(chatContent);
-                    isChatUiInitialized = true;
-                    if(pageContext) {
-                        $(chatContent).data("send_message")("Summarize the current page.", pageContext);
-                    }
+                loadScript("https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.4.0/purify.min.js", () => {
+                    loadScript("/assets/gemini_integration/js/gemini_chat_ui.js", () => {
+                        createGeminiChatUI(chatContent);
+                        isChatUiInitialized = true;
+                        if(pageContext) {
+                            $(chatContent).data("send_message")("Summarize the current page.", pageContext);
+                        }
+                    });
                 });
             } else if(pageContext) {
                  $(chatContent).data("send_message")("Summarize the current page.", pageContext);
