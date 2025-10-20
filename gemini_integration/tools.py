@@ -129,6 +129,76 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 @mcp.tool()
 @log_activity
 @handle_errors
+def fetch_erpnext_data(doctype: str, filters: dict, fields: list[str]) -> str:
+	"""
+	Fetches a list of records from a specified DocType with specific filters and fields.
+	This is a powerful, generic tool for data retrieval.
+
+	Args:
+		doctype (str): The DocType to query (e.g., 'Sales Order').
+		filters (dict): A dictionary of filters to apply (e.g., {'status': 'Draft'}).
+		fields (list[str]): A list of the field names to retrieve (e.g., ['name', 'customer']).
+
+	Returns:
+		str: A JSON string containing the list of matching records or an error message.
+	"""
+	# --- Safeguard 1: DocType Allowlist ---
+	try:
+		settings = frappe.get_single("Gemini Settings")
+		allowed_doctypes = [d.doctype_to_query for d in settings.get("queryable_doctypes", [])]
+		if doctype not in allowed_doctypes:
+			return json.dumps({
+				"error": f"Access to the '{doctype}' DocType is not permitted. Please select from the allowed list."
+			})
+	except Exception:
+		frappe.log_error("Failed to retrieve or parse 'Queryable DocTypes' from Gemini Settings.")
+		return json.dumps({"error": "Could not verify DocType permissions due to a configuration error."})
+
+	# --- Safeguard 2: Field Denylist ---
+	field_denylist = ["password", "api_key", "secret", "private_key", "api_secret"]
+	for field in fields:
+		if field.lower() in field_denylist:
+			return json.dumps({"error": f"Access to the sensitive field '{field}' is not allowed."})
+
+	# --- Safeguard 3: Field Validation ---
+	try:
+		meta = frappe.get_meta(doctype)
+		valid_fields = {df.fieldname for df in meta.fields}
+		valid_fields.add('name') # 'name' is always valid
+
+		for field in fields:
+			if field not in valid_fields:
+				return json.dumps({"error": f"Field '{field}' is not a valid field for DocType '{doctype}'."})
+
+	except frappe.DoesNotExistError:
+		return json.dumps({"error": f"DocType '{doctype}' does not exist."})
+
+
+	try:
+		# --- Safeguard 4: Hardcoded Result Limit ---
+		data = frappe.get_list(
+			doctype,
+			filters=filters,
+			fields=fields,
+			limit_page_length=25
+		)
+		return json.dumps(data)
+
+	except Exception as e:
+		frappe.log_error(
+			message=f"Error in fetch_erpnext_data for {doctype}: {frappe.get_traceback()}",
+			title="Gemini Tool Error",
+		)
+		# Provide a more user-friendly error message
+		return json.dumps({"error": f"An error occurred while querying the '{doctype}' DocType. This could be due to invalid filters or fields."})
+
+
+fetch_erpnext_data.service = "erpnext"
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
 def send_email(to: str, subject: str, body: str, confirmed: bool = False) -> str:
 	"""
 	Prepares a draft or sends an email.
@@ -300,63 +370,6 @@ def get_doc_context(doctype: str, docname: str) -> str:
 		return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
 
 get_doc_context.service = "erpnext"
-
-
-@mcp.tool()
-@log_activity
-@handle_errors
-def fetch_document_data(doctype: str, docname: str, fields: list[str]) -> str:
-	"""
-	Fetches specific fields from a single document using the Frappe ORM.
-
-	Args:
-		doctype (str): The DocType of the document.
-		docname (str): The name (ID) of the document.
-		fields (list[str]): A list of the field names to retrieve.
-
-	Returns:
-		str: A JSON string containing the requested field data or an error message.
-	"""
-	try:
-		# Validate that the document exists
-		if not frappe.db.exists(doctype, docname):
-			return json.dumps({"error": f"Document '{docname}' of type '{doctype}' not found."})
-
-		# Validate that all requested fields are actual columns to prevent injection
-		meta = frappe.get_meta(doctype)
-		valid_fields = [df.fieldname for df in meta.fields]
-
-		# Ensure 'name' is always fetchable, even if not explicitly in meta.fields
-		valid_fields.append('name')
-
-		for field in fields:
-			if field not in valid_fields:
-				return json.dumps({"error": f"Field '{field}' is not a valid field for DocType '{doctype}'."})
-
-		# Fetch the data using frappe.get_value
-		data = frappe.get_value(doctype, docname, fields)
-
-		# frappe.get_value returns a tuple if multiple fields are requested,
-		# a single value if one field is requested, or None if not found.
-		if not data:
-			 return json.dumps({"error": f"Could not retrieve data for '{docname}'."})
-
-		if len(fields) > 1:
-			result = dict(zip(fields, data))
-		else:
-			result = {fields[0]: data}
-
-		return json.dumps(result)
-
-	except Exception as e:
-		frappe.log_error(
-			message=f"Error in fetch_document_data for {doctype} {docname}: {frappe.get_traceback()}",
-			title="Gemini Tool Error",
-		)
-		return json.dumps({"error": "An unexpected error occurred while fetching document data."})
-
-
-fetch_document_data.service = "erpnext"
 
 
 @mcp.tool()

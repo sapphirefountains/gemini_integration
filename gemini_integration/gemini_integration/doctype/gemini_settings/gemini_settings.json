@@ -14,6 +14,7 @@
   "url_blacklist",
   "contact_confidence_threshold",
   "embedding_doctypes",
+  "queryable_doctypes",
   "field_weights"
  ],
  "fields": [
@@ -68,6 +69,13 @@
    "label": "DocTypes for Embedding",
    "options": "Embedding Doctype",
    "description": "Select the DocTypes that should be indexed for semantic search."
+  },
+  {
+   "fieldname": "queryable_doctypes",
+   "fieldtype": "Table",
+   "label": "Queryable DocTypes",
+   "options": "Queryable DocType",
+   "description": "Select the DocTypes that the AI is allowed to query using the 'fetch_erpnext_data' tool."
   },
   {
    "fieldname": "field_weights",
