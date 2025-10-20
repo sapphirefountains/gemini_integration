@@ -26,7 +26,12 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/gemini_integration/css/gemini_integration.css"
-app_include_js = "/assets/gemini_integration/js/global_chat.js"
+app_include_js = [
+    "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js",
+    "public/js/gemini_chat_ui.js",
+    "/assets/gemini_integration/js/global_chat.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/gemini_integration/css/gemini_integration.css"
