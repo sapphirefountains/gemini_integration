@@ -9,45 +9,106 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	let currentConversation = null;
 
 	const styles = `
-        .gemini-chat-container { display: flex; height: 75vh; position: relative; overflow: hidden; }
-        .conversations-sidebar { width: 250px; border-right: 1px solid #d1d5db; padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; }
-        .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        #new-chat-button { margin-left: 10px; }
+		:root {
+			--gemini-font-family: "Google Sans", sans-serif;
+			--gemini-bg-color: #f0f4f9;
+			--gemini-header-bg: #fff;
+			--gemini-sidebar-bg: #fff;
+			--gemini-chat-bg: #fff;
+			--gemini-input-bg: #fff;
+			--gemini-user-bubble: #1a73e8;
+			--gemini-model-bubble: #f1f3f4;
+			--gemini-text-color: #202124;
+			--gemini-light-text: #5f6368;
+			--gemini-border-color: #e0e2e6;
+		}
+        body { font-family: var(--gemini-font-family); }
+        .gemini-chat-container { display: flex; height: 85vh; position: relative; overflow: hidden; background-color: var(--gemini-bg-color); }
+        .conversations-sidebar { width: 260px; border-right: 1px solid var(--gemini-border-color); padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; background-color: var(--gemini-sidebar-bg); }
+        .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        #new-chat-button { border-radius: 20px; }
         #conversations-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; }
-        #conversations-list .list-group-item { cursor: pointer; padding: 10px; border-radius: 5px; margin-bottom: 5px; }
-        #conversations-list .list-group-item:hover { background-color: #f0f0f0; }
-        #conversations-list .list-group-item.active { background-color: #e0e0e0; font-weight: bold; }
+        #conversations-list .list-group-item { cursor: pointer; padding: 10px 15px; border-radius: 20px; margin-bottom: 8px; border: none; }
+        #conversations-list .list-group-item:hover { background-color: #e8f0fe; }
+        #conversations-list .list-group-item.active { background-color: #d2e3fc; font-weight: 500; }
 
-        .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; }
-        .chat-header { padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
-        .chat-history { flex-grow: 1; overflow-y: auto; border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; margin-bottom: 16px; background-color: #f9fafb; }
-        .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; word-wrap: break-word; }
-        .chat-bubble.user { background-color: #3b82f6; color: white; margin-left: auto; border-bottom-right-radius: 0; }
-        .chat-bubble.gemini { background-color: #e5e7eb; color: #1f2937; margin-right: auto; border-bottom-left-radius: 0; }
-        .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid #e5e7eb; color: #4b5563; width: 100%; max-width: 100%; margin-bottom: 12px; }
+        .gemini-chat-wrapper { flex-grow: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; padding: 0 20px; }
+        .chat-header { padding: 15px 0; display: flex; justify-content: space-between; align-items: center; background-color: var(--gemini-header-bg); }
+        .chat-history { flex-grow: 1; overflow-y: auto; padding: 20px 0; }
+
+		.chat-bubble-wrapper {
+			display: flex;
+			margin-bottom: 20px;
+		}
+		.chat-bubble-wrapper.user {
+			justify-content: flex-end;
+		}
+		.chat-bubble-wrapper.gemini {
+			justify-content: flex-start;
+		}
+
+		.avatar {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			margin-right: 15px;
+			background-color: #ccc; /* Placeholder */
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-weight: bold;
+		}
+
+		.chat-bubble-wrapper.user .avatar {
+			margin-left: 15px;
+			margin-right: 0;
+		}
+
+
+        .chat-bubble { max-width: 80%; padding: 15px 20px; border-radius: 18px; word-wrap: break-word; line-height: 1.6; }
+        .chat-bubble.user { background-color: var(--gemini-user-bubble); color: white; border-bottom-right-radius: 4px; }
+        .chat-bubble.gemini { background-color: var(--gemini-model-bubble); color: var(--gemini-text-color); border-bottom-left-radius: 4px; }
+        .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid var(--gemini-border-color); color: #4b5563; width: 100%; max-width: 100%; margin: 15px 0; padding: 15px; }
         .chat-bubble.thoughts h6 { margin-top: 0; margin-bottom: 10px; font-weight: 600; }
         .chat-bubble.thoughts pre { white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; background-color: #fff; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
 
-        .clarification-container { padding: 10px; }
-        .clarification-container .list-group-item { display: flex; align-items: center; }
-        .clarification-container .list-group-item input { margin-right: 10px; }
-        .clarification-submit-btn { margin-top: 10px; }
+		.greeting-card {
+			padding: 24px;
+			border-radius: 12px;
+			margin-bottom: 30px;
+			text-align: center;
+		}
+		.greeting-title {
+			font-size: 32px;
+			font-weight: 500;
+			margin-bottom: 10px;
+		}
+		.greeting-subtitle {
+			font-size: 16px;
+			color: var(--gemini-light-text);
+		}
 
-        .chat-input-area { display: flex; align-items: center; gap: 8px; position: relative; }
-        .chat-input-area textarea { flex-grow: 1; }
+        .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin-bottom: 20px; }
+        .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
+		.chat-input-area textarea:focus { box-shadow: none; }
+		.google-search-toggle { display: flex; align-items: center; gap: 8px; color: var(--gemini-light-text); }
+		.send-btn { border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
 
         .model-selector-area { margin-bottom: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
-        .google-connect-btn { margin-left: auto; }
+        .google-connect-btn { margin-left: auto; border-radius: 20px; }
         .sidebar-toggle-btn { display: none; }
 
         @media (max-width: 768px) {
             .sidebar-toggle-btn { display: inline-block; }
-            .conversations-sidebar { position: absolute; top: 0; left: 0; height: 100%; z-index: 10; background: #fff; transform: translateX(-100%); }
+            .conversations-sidebar { position: absolute; top: 0; left: 0; height: 100%; z-index: 10; background: var(--gemini-sidebar-bg); transform: translateX(-100%); box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
             .gemini-chat-container.sidebar-open .conversations-sidebar { transform: translateX(0); }
-            .gemini-chat-wrapper { max-width: 100%; }
+            .gemini-chat-wrapper { padding: 0 15px; }
+			.chat-input-area { margin-bottom: 15px; }
         }
     `;
 	$("<style>").text(styles).appendTo("head");
+	$('<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">').appendTo("head");
+
 
 	let html = `
         <div class="gemini-chat-container">
@@ -55,8 +116,10 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
                 <div class="sidebar-header">
                     <h4>Conversations</h4>
                     <div>
-                        <button id="new-chat-button" class="btn btn-primary btn-sm">New</button>
-                        <button id="close-sidebar-btn" class="btn btn-default btn-sm"><i class="fa fa-times"></i></button>
+                        <button id="new-chat-button" class="btn btn-default btn-sm">
+							<i class="fa fa-plus" style="margin-right: 5px;"></i> New Chat
+						</button>
+                        <button id="close-sidebar-btn" class="btn btn-default btn-sm visible-xs"><i class="fa fa-times"></i></button>
                     </div>
                 </div>
                 <ul id="conversations-list" class="list-group"></ul>
@@ -68,19 +131,24 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
                     </button>
                     <div class="model-selector-area flex-grow-1">
                          <button class="btn btn-default btn-sm help-btn" title="Help">
-                            <i class="fa fa-question-circle"></i>
+                            <i class="fa fa-question-circle-o"></i> Help
                         </button>
-                        <button class="btn btn-secondary btn-sm google-connect-btn">Connect Google Account</button>
+                        <button class="btn btn-default btn-sm google-connect-btn">
+							<i class="fa fa-google" style="margin-right: 5px;"></i>
+							Connect Google Account
+						</button>
                     </div>
                 </div>
-                <div class="chat-history"></div>
+                <div class="chat-history">
+					<!-- Greeting will be injected here -->
+				</div>
                 <div class="chat-input-area">
-                    <textarea class="form-control" rows="2" placeholder="Type your message... (Shift + Enter to send)"></textarea>
-                    <div class="google-search-toggle">
+                    <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
+					<div class="google-search-toggle">
                         <input type="checkbox" id="google-search-checkbox" class="form-check-input">
-                        <label for="google-search-checkbox">Google Search</label>
+                        <label for="google-search-checkbox" class="mb-0">Search</label>
                     </div>
-                    <button class="btn btn-primary send-btn">Send</button>
+                    <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
                 </div>
             </div>
         </div>
@@ -172,13 +240,26 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		const help_html = `
             <div>
                 <h4>How to Reference Data</h4>
-                <p>Use the <code>@</code> symbol to reference data from ERPNext or search Google Workspace.</p>
+                <p>You can reference data from various sources using special syntaxes in your prompt.</p>
+
                 <h5>ERPNext Documents</h5>
-                <p>Use <code>@DocType-ID</code> or <code>@"Doc Name"</code> to find specific documents.</p>
-                <ul><li><code>What is the status of @PRJ-00183?</code></li><li><code>Summarize customer @"Valley Fair"</code></li></ul>
+                <p>Use the <code>@</code> symbol to find specific documents by their ID or name.</p>
+                <ul>
+                    <li><code>@PRJ-00183</code> - Fetches the project with the ID "PRJ-00183".</li>
+                    <li><code>@"Valley Fair"</code> - Searches for a document named "Valley Fair".</li>
+                </ul>
+                <p><strong>Example:</strong> "What is the current status of @PRJ-00183?"</p>
+
                 <h5>Google Workspace</h5>
-                <p>Include keywords like <code>email</code>, <code>drive</code>, <code>file</code>, or <code>calendar</code> in your prompt. If multiple items are found, I'll ask you to clarify.</p>
-                <ul><li><code>Find emails about the "Q3 marketing budget"</code></li><li><code>Search my drive for "2024 Roadmap"</code></li></ul>
+                <p>Simply include keywords related to the service you want to use. The system will automatically detect and use the appropriate tool.</p>
+                <ul>
+                    <li><strong>Email:</strong> "Find emails from @"John Doe" about the Q3 marketing budget"</li>
+                    <li><strong>Drive:</strong> "Search my drive for the '2024 Roadmap' document"</li>
+                    <li><strong>Calendar:</strong> "What are my upcoming events for next week?"</li>
+                </ul>
+                 <h5>Tool Confirmation</h5>
+                <p>For actions that have external effects, like sending an email, the model will first generate a draft or a plan. It will present this to you for confirmation before proceeding with the action.</p>
+
             </div>`;
 		frappe.msgprint({
 			title: __("Help: Referencing Data"),
@@ -289,26 +370,44 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	 * @param {string} text - The content of the message.
 	 */
 	const add_to_history = (role, text) => {
-		let bubble;
-		if (role === "thoughts") {
-			bubble = $(
-				`<div class="chat-bubble thoughts"><h6>Gemini's Thoughts</h6><pre></pre></div>`
-			);
-			bubble.find("pre").text(text);
+		// If the greeting is visible, remove it.
+		chat_history.find(".greeting-card").remove();
+
+
+		let bubble_wrapper = $(`<div class="chat-bubble-wrapper ${role}"></div>`);
+		let avatar = $(`<div class="avatar"></div>`);
+		let bubble = $(`<div class="chat-bubble ${role}"></div>`);
+
+		// Add initials to avatar
+		if (role === "user") {
+			avatar.text(frappe.session.user_abbr);
+			avatar.css("background-color", frappe.get_palette(frappe.session.user_fullname));
 		} else {
-			bubble = $(`<div class="chat-bubble ${role}"></div>`);
-			if (text) {
-				if (window.showdown) {
-					let converter = new showdown.Converter();
-					bubble.html(converter.makeHtml(text));
-				} else {
-					bubble.text(text);
-				}
+			avatar.html('<i class="fa fa-android"></i>'); // Example Gemini icon
+			avatar.css("background-color", "#f1f3f4");
+			avatar.css("color", "#202124");
+		}
+
+
+		if (text) {
+			if (window.showdown) {
+				let converter = new showdown.Converter();
+				bubble.html(converter.makeHtml(text));
+			} else {
+				bubble.text(text);
 			}
 		}
 
-		chat_history.append(bubble);
+		if (role === 'user') {
+			bubble_wrapper.append(bubble).append(avatar);
+		} else {
+			bubble_wrapper.append(avatar).append(bubble);
+		}
+
+
+		chat_history.append(bubble_wrapper);
 		chat_history.scrollTop(chat_history[0].scrollHeight);
+
 		if (role !== "thoughts") {
 			conversation.push({ role: role, text: text });
 		}
@@ -369,12 +468,23 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	};
 
+	const show_greeting = () => {
+		const user_name = frappe.session.user_fullname;
+		const greeting_html = `
+            <div class="greeting-card">
+                <h1 class="greeting-title">Hello, ${user_name}</h1>
+                <p class="greeting-subtitle">How can I help you today?</p>
+            </div>
+        `;
+		chat_history.html(greeting_html);
+	};
+
 	new_chat_btn.on("click", () => {
 		history.pushState(null, "", "/app/gemini-chat");
 		currentConversation = null;
 		conversation = [];
 		chat_history.empty();
-		add_to_history("gemini", "Hello! How can I help you today?");
+		show_greeting();
 		load_conversations();
 	});
 
@@ -397,7 +507,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		if (match) {
 			load_conversation(match[1]);
 		} else {
-			add_to_history("gemini", "Hello! How can I help you today?");
+			show_greeting();
 		}
 	};
 	handle_initial_load();
