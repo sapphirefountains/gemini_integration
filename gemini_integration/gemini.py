@@ -109,6 +109,7 @@ from frappe.utils import get_site_url, get_url_to_form
 from googleapiclient.errors import HttpError
 
 from gemini_integration.tools import (
+	fetch_document_data,
 	get_doc_context,
 	handle_errors,
 	log_activity,
@@ -483,7 +484,7 @@ def generate_chat_response(
 		# Create a mapping from the service mention to the tool function names.
 		# This is more robust than relying on direct name matching.
 		service_to_tool_map = {
-			"erpnext": ["search_erpnext_documents"],
+			"erpnext": ["search_erpnext_documents", "fetch_document_data"],
 			"google": [
 				"search_drive",
 				"search_gmail",
