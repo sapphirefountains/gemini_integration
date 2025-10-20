@@ -294,6 +294,39 @@ def _uppercase_schema_types(schema):
 	return schema
 
 
+def _linkify_erpnext_docs(text):
+	"""Finds potential ERPNext document names in text and replaces them with links."""
+	# This regex looks for patterns like 'PRJ-00001' or 'CUST-00002'.
+	pattern = re.compile(r"(?<!['\"/>])([A-Z]{2,5}-\d{5,})(?!['\"/<])")
+
+	def get_doctypes_from_cache():
+		"""Fetches a list of non-single DocTypes, caching the result."""
+		cache_key = "gemini_linkify_doctypes"
+		doctypes = frappe.cache().get_value(cache_key)
+		if not doctypes:
+			doctypes = frappe.get_all("DocType", filters={"issingle": 0}, pluck="name")
+			# Cache for an hour to balance freshness and performance.
+			frappe.cache().set_value(cache_key, doctypes, expires_in_sec=3600)
+		return doctypes
+
+	doctypes_to_check = get_doctypes_from_cache()
+
+	def replacer(match):
+		doc_name = match.group(1)
+		prefix = doc_name.split("-")[0]
+
+		# This is a heuristic and might need adjustment based on naming series conventions.
+		potential_doctype = next((dt for dt in doctypes_to_check if dt.upper().startswith(prefix)), None)
+
+		if potential_doctype and frappe.db.exists(potential_doctype, doc_name):
+			doc_url = get_url_to_form(potential_doctype, doc_name)
+			return f'<a href="{doc_url}" target="_blank">{doc_name}</a>'
+
+		return doc_name
+
+	return pattern.sub(replacer, text)
+
+
 # --- MAIN CHAT FUNCTIONALITY ---
 
 
@@ -571,6 +604,9 @@ CONTEXT:
 		# This occurs if the response has no text part (e.g., due to safety filters
 		# or a function call without a final text response).
 		final_response_text = "Here is the image you requested." if image_url else "No response from the model."
+
+	# Linkify any ERPNext document IDs found in the final response
+	final_response_text = _linkify_erpnext_docs(final_response_text)
 
 	# If tools were called, log the complete trace for debugging.
 	if tool_calls_log:
