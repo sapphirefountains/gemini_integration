@@ -536,62 +536,150 @@ CONTEXT:
 	chat = model_instance.start_chat(history=gemini_history)
 
 	# 4. Send the prompt and handle the response, including any tool calls
-	response = chat.send_message(prompt, stream=stream)
+	# Send the initial prompt and start the response processing.
+	response_stream = chat.send_message(prompt, stream=stream)
 
-	def process_response():
-		# Loop to handle multiple potential tool calls from the model
-		tool_calls_log = []
+	def process_response_stream(current_stream):
+		"""
+		Processes a response stream, handles tool calls, and returns the final text.
+		This function is designed to be called recursively for tool calls.
+		"""
 		final_response_text = ""
-		for chunk in response:
-			if chunk.candidates[0].content.parts[0].function_call:
-				function_call = chunk.candidates[0].content.parts[0].function_call
-				tool_name = function_call.name
-				tool_args = {key: value for key, value in function_call.args.items()}
-				tool_function = mcp._tool_registry[tool_name]["fn"]
-				tool_result_obj = tool_function(**tool_args)
-				if isinstance(tool_result_obj, dict):
-					tool_result_for_model = tool_result_obj.get("string_representation", "")
+		tool_calls_log = []
+
+		for chunk in current_stream:
+			try:
+				# Robustly check for a function call in any part of the chunk
+				function_call = None
+				if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+					for part in chunk.candidates[0].content.parts:
+						if part.function_call:
+							function_call = part.function_call
+							break
+
+				if function_call:
+					tool_name = function_call.name
+					tool_args = {key: value for key, value in function_call.args.items()}
+
+					# Log the raw function call for debugging
+					frappe.log_error(
+						message=f"Gemini requested tool: {tool_name} with args: {tool_args}",
+						title="Gemini Tool Call",
+					)
+
+					# Execute the tool function
+					tool_function = mcp._tool_registry[tool_name]["fn"]
+					tool_result_obj = tool_function(**tool_args)
+
+					# Determine the representation of the result to send back to the model
+					if isinstance(tool_result_obj, dict):
+						tool_result_for_model = tool_result_obj.get(
+							"string_representation", str(tool_result_obj)
+						)
+					else:
+						tool_result_for_model = str(tool_result_obj)
+
+					# If the tool was a successful document search, save the full context
+					if (
+						tool_name == "search_erpnext_documents"
+						and isinstance(tool_result_obj, dict)
+						and tool_result_obj.get("type") == "confident_match"
+					):
+						conversation_history.append(
+							{"role": "tool_context", "content": json.dumps(tool_result_obj)}
+						)
+
+					# Log the result being sent back to the model
+					tool_calls_log.append(
+						{"tool": tool_name, "arguments": tool_args, "result": tool_result_for_model}
+					)
+					frappe.log_error(
+						message=f"Sending tool response for {tool_name} to Gemini: {tool_result_for_model}",
+						title="Gemini Tool Response",
+					)
+
+					# Send the tool's result back to the model and get the new response stream
+					function_response_payload = [
+						{
+							"function_response": {
+								"name": tool_name,
+								"response": {"contents": tool_result_for_model},
+							}
+						}
+					]
+					new_response_stream = chat.send_message(function_response_payload, stream=stream)
+
+					# Process the new stream to get the final answer from the model
+					# This recursive call handles subsequent tool calls or the final text response
+					final_text, nested_logs = process_response_stream(new_response_stream)
+					final_response_text += final_text
+					tool_calls_log.extend(nested_logs)
+					# Once we've handled a tool call and its subsequent response, we break the loop
+					# as the rest of the original stream is now irrelevant.
+					break
+
 				else:
-					tool_result_for_model = str(tool_result_obj)
-				if (
-					tool_name == "search_erpnext_documents"
-					and tool_result_obj.get("type") == "confident_match"
-				):
-					conversation_history.append(
-						{"role": "tool_context", "content": json.dumps(tool_result_obj)}
-					)
-				tool_calls_log.append(
-					{"tool": tool_name, "arguments": tool_args, "result": tool_result_for_model}
+					# This is a regular text chunk, not a tool call
+					text_chunk = ""
+					try:
+						text_chunk = chunk.text
+					except ValueError:
+						# This can happen if a chunk is empty or has non-text parts after a tool call.
+						# We can safely ignore these.
+						continue
+
+					final_response_text += text_chunk
+					if stream:
+						frappe.publish_realtime(
+							"gemini_chat_update", {"message": text_chunk}, user=frappe.session.user
+						)
+
+			except Exception as e:
+				frappe.log_error(
+					message=f"Error processing Gemini stream chunk: {e!s}\n{frappe.get_traceback()}",
+					title="Gemini Stream Error",
 				)
-				function_response_payload = {
-					"function_response": {
-						"name": tool_name,
-						"response": {"contents": tool_result_for_model},
-					}
-				}
-				response = chat.send_message([function_response_payload], stream=stream)
-			else:
-				final_response_text += chunk.text
 				if stream:
+					# Notify the user of the error via the websocket
 					frappe.publish_realtime(
-						"gemini_chat_update", {"message": chunk.text}, user=frappe.session.user
+						"gemini_chat_update",
+						{"error": "An error occurred while processing the response."},
+						user=frappe.session.user,
 					)
+				# Stop processing the stream on error
+				break
+
 		return final_response_text, tool_calls_log
 
 	if stream:
 
 		def stream_generator():
 			nonlocal conversation_id
+			# Ensure a conversation exists before starting the stream
 			if not conversation_id:
-				new_conversation = save_conversation(None, prompt, [])
-				conversation_id = new_conversation
+				conversation_id = save_conversation(None, prompt, [])
 				frappe.publish_realtime(
 					"gemini_chat_update",
 					{"conversation_id": conversation_id},
 					user=frappe.session.user,
 				)
-			final_response_text, _ = process_response()
-			# Save the conversation after the stream is complete
+
+			# Process the stream from the initial prompt
+			final_response_text, tool_calls_log = process_response_stream(response_stream)
+
+			# Log the full tool call trace if any tools were used
+			if tool_calls_log:
+				log_entry = {
+					"source": "Gemini Tool Call Trace",
+					"tool_calls": tool_calls_log,
+					"final_response": final_response_text,
+				}
+				frappe.log_error(
+					message=json.dumps(log_entry, indent=2, default=str),
+					title="Gemini Tool Call Trace",
+				)
+
+			# Update and save the complete conversation history
 			conversation_history.append({"role": "user", "text": prompt})
 			conversation_history.append({"role": "gemini", "text": final_response_text})
 			save_conversation(conversation_id, prompt, conversation_history)
@@ -600,11 +688,13 @@ CONTEXT:
 			frappe.publish_realtime(
 				"gemini_chat_update", {"end_of_stream": True}, user=frappe.session.user
 			)
+			# The generator must yield something for the request to complete.
 			yield ""
 
 		return stream_generator()
 
-	final_response_text, tool_calls_log = process_response()
+	# Handle the non-streaming case
+	final_response_text, tool_calls_log = process_response_stream(response_stream)
 
 	# Linkify any ERPNext document IDs found in the final response
 	final_response_text = _linkify_erpnext_docs(final_response_text)
