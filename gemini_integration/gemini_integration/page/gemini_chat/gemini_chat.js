@@ -100,6 +100,20 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
         .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		.chat-input-area textarea:focus { box-shadow: none; }
 		.send-btn { border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+		.spinner-container { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+		.spinner {
+			border: 4px solid var(--gemini-border-color);
+			border-top: 4px solid var(--gemini-user-bubble);
+			border-radius: 50%;
+			width: 24px;
+			height: 24px;
+			animation: spin 1s linear infinite;
+		}
+
+		@keyframes spin {
+			0% { transform: rotate(0deg); }
+			100% { transform: rotate(360deg); }
+		}
 
 		.sidebar-controls { display: flex; flex-direction: column; gap: 10px; padding-top: 15px; border-top: 1px solid var(--gemini-border-color); }
 		.sidebar-controls .btn { width: 100%; text-align: left; justify-content: flex-start; }
@@ -175,6 +189,9 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
                 <div class="chat-input-area">
                     <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
                     <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
+					<div class="spinner-container" style="display: none;">
+						<div class="spinner"></div>
+					</div>
                 </div>
             </div>
         </div>
@@ -184,6 +201,7 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	let chat_history = $(page.body).find(".chat-history");
 	let chat_input = $(page.body).find(".chat-input-area textarea");
 	let send_btn = $(page.body).find(".send-btn");
+	let spinner_container = $(page.body).find(".spinner-container");
 	let google_search_checkbox = $(page.body).find("#google-search-checkbox");
 	let google_connect_btn = $(page.body).find(".google-connect-btn");
 	let help_btn = $(page.body).find(".help-btn");
@@ -355,8 +373,8 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		if (data.end_of_stream) {
 			// Re-enable the input fields and reset the button.
 			chat_input.prop("disabled", false);
-			send_btn.prop("disabled", false);
-			send_btn.html('<i class="fa fa-arrow-up"></i>');
+			spinner_container.hide();
+			send_btn.show();
 			// Reset the streaming variables for the next message.
 			streaming_bubble = null;
 			full_response = "";
@@ -379,8 +397,8 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 
 		// Disable input and show a loading spinner in the send button.
 		chat_input.prop("disabled", true);
-		send_btn.prop("disabled", true);
-		send_btn.html('<i class="fa fa-spinner fa-spin"></i>');
+		send_btn.hide();
+		spinner_container.show();
 
 		// Create a new bubble for the streaming response and reset the response text.
 		streaming_bubble = add_to_history("gemini", "");
@@ -402,8 +420,8 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 			error: function (r) {
 				// In case of an error, re-enable the input fields.
 				chat_input.prop("disabled", false);
-				send_btn.prop("disabled", false);
-				send_btn.html('<i class="fa fa-arrow-up"></i>');
+				spinner_container.hide();
+				send_btn.show();
 				// Display the error message in a new chat bubble.
 				add_to_history("gemini", `Error: ${r.message}`);
 			},
