@@ -3,6 +3,7 @@ import io
 import json
 import re
 from datetime import datetime, timedelta
+import markdown
 
 import frappe
 import google.generativeai as genai
@@ -125,6 +126,11 @@ def generate_embedding(text, model_name="embedding-001"):
 def get_text_representation_for_doc(doc):
 	"""Creates a unified text string from a document's fields for embedding.
 
+	This function is more sophisticated and includes:
+	- Metadata: creation, owner, modified, modified_by, status, and docstatus.
+	- Field Weighting: Fetches rules from Gemini Settings to repeat important fields.
+	- Child Table Data: Includes data from child tables as HTML tables.
+
 	Args:
 		doc (frappe.model.document.Document): The document to process.
 
@@ -133,11 +139,76 @@ def get_text_representation_for_doc(doc):
 	"""
 	text_parts = []
 	meta = frappe.get_meta(doc.doctype)
+	settings = frappe.get_single("Gemini Settings")
+
+	# 1. Add Metadata
+	metadata = []
+	if hasattr(doc, "creation") and doc.creation:
+		metadata.append(f"Document created on {doc.creation.strftime('%B %d, %Y')}")
+	if hasattr(doc, "owner"):
+		metadata.append(f"by {doc.owner}")
+	if hasattr(doc, "modified") and doc.modified:
+		metadata.append(f"last modified on {doc.modified.strftime('%B %d, %Y')}")
+	if hasattr(doc, "modified_by"):
+		metadata.append(f"by {doc.modified_by}")
+	if hasattr(doc, "status"):
+		metadata.append(f"with status '{doc.status}'")
+	if hasattr(doc, "docstatus"):
+		docstatus_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
+		metadata.append(f"and is currently {docstatus_map.get(doc.docstatus, 'Unknown')}")
+
+	if metadata:
+		# Filter out empty strings before joining
+		full_metadata_str = ", ".join(filter(None, metadata))
+		text_parts.append(f"This document is a {doc.doctype}. {full_metadata_str}.")
+
+	# 2. Field Weighting Setup
+	field_weights = {}
+	if settings.field_weights:
+		for item in settings.field_weights:
+			if item.doctype_name == doc.doctype:
+				field_weights[item.field_name] = item.weight
+
+	# 3. Process main fields with weighting
 	for field in meta.fields:
 		if field.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Select"]:
 			value = doc.get(field.fieldname)
 			if value:
-				text_parts.append(f"{field.label}: {value}")
+				# Default weight is 1
+				weight = field_weights.get(field.fieldname, 1)
+				field_text = f"{field.label}: {value}"
+				text_parts.extend([field_text] * weight)
+
+	# 4. Process Child Tables
+	for field in meta.fields:
+		if field.fieldtype == "Table":
+			child_docs = doc.get(field.fieldname)
+			if not child_docs:
+				continue
+
+			text_parts.append(f"\n--- {field.label} ---\n")
+			child_meta = frappe.get_meta(field.options)
+
+			# Header
+			headers = [
+				child_field.label for child_field in child_meta.fields if child_field.in_list_view
+			]
+			md_table = f"| {' | '.join(headers)} |\n"
+			md_table += f"| {' | '.join(['---'] * len(headers))} |\n"
+
+			# Rows
+			for child_doc in child_docs:
+				row_values = []
+				for child_field in child_meta.fields:
+					if child_field.in_list_view:
+						value = child_doc.get(child_field.fieldname)
+						row_values.append(str(value) if value is not None else "")
+				md_table += f"| {' | '.join(row_values)} |\n"
+
+			# Convert to HTML
+			html_table = markdown.markdown(md_table, extensions=["tables"])
+			text_parts.append(html_table)
+
 	return "\n".join(text_parts)
 
 

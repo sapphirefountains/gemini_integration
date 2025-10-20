@@ -16,7 +16,8 @@ dependencies = [
     "thefuzz[speedup]",
     "beautifulsoup4",
     "PyPDF2",
-    "frappe-mcp"
+    "frappe-mcp",
+    "markdown"
 ]
 
 [build-system]
