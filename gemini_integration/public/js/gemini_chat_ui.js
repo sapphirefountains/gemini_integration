@@ -250,22 +250,21 @@ function createGeminiChatUI(parentElement, options = {}) {
         streaming_bubble = add_to_history("gemini", "");
         full_response = "";
 
-        let api_context = null;
-        if (page_context) {
-            api_context = `The user is viewing the '${page_context.doctype}' document titled '${page_context.docname}'.`;
-            page_context = null; // Clear context after first use
-            container.find(".context-indicator").hide();
-        }
+        const args = {
+			prompt: prompt,
+			model: model_selector.get_value(),
+			conversation_id: currentConversation,
+			use_google_search: google_search_checkbox.is(":checked"),
+		};
+
+		if (page_context) {
+			args.doctype = page_context.doctype;
+			args.docname = page_context.docname;
+		}
 
         frappe.call({
             method: "gemini_integration.api.stream_chat",
-            args: {
-                prompt: prompt,
-                model: model_selector.get_value(),
-                conversation_id: currentConversation,
-                use_google_search: google_search_checkbox.is(":checked"),
-                context: api_context,
-            },
+            args: args,
             error: function (r) {
                 spinner_container.hide();
                 send_btn.show();
