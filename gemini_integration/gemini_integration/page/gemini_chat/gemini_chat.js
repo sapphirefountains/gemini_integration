@@ -99,7 +99,6 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
         .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin-bottom: 20px; }
         .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		.chat-input-area textarea:focus { box-shadow: none; }
-		.google-search-toggle { display: flex; align-items: center; gap: 8px; color: var(--gemini-light-text); }
 		.send-btn { border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
 		.sidebar-controls { display: flex; flex-direction: column; gap: 10px; padding-top: 15px; border-top: 1px solid var(--gemini-border-color); }
@@ -107,6 +106,19 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		.sidebar-controls .model-selector-container .form-group { margin-bottom: 0; }
 		.sidebar-controls .google-connect-btn { border-radius: 20px; }
         .sidebar-toggle-btn { display: none; }
+
+		/* Toggle Switch styles */
+		.google-search-toggle { display: flex; align-items: center; justify-content: space-between; padding: 8px 15px; cursor: pointer; border-radius: 20px; }
+		.google-search-toggle:hover { background-color: #e8f0fe; }
+		.google-search-toggle label { margin-bottom: 0; font-weight: 500; }
+		.switch { position: relative; display: inline-block; width: 34px; height: 20px; }
+		.switch input { opacity: 0; width: 0; height: 0; }
+		.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; -webkit-transition: .4s; transition: .4s; border-radius: 34px; }
+		.slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 4px; bottom: 4px; background-color: white; -webkit-transition: .4s; transition: .4s; border-radius: 50%; }
+		input:checked + .slider { background-color: #1a73e8; }
+		input:checked + .slider:before { -webkit-transform: translateX(14px); -ms-transform: translateX(14px); transform: translateX(14px); }
+		input:disabled + .slider { background-color: #e0e0e0; cursor: not-allowed; }
+
 
         @media (max-width: 768px) {
             .sidebar-toggle-btn { display: inline-block; }
@@ -142,6 +154,13 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 					<button class="btn btn-default btn-sm help-btn" title="Help">
 						<i class="fa fa-question-circle-o" style="margin-right: 5px;"></i> Help
 					</button>
+                    <div class="google-search-toggle">
+                        <label for="google-search-checkbox" class="mb-0">Search with Google</label>
+                        <label class="switch">
+                            <input type="checkbox" id="google-search-checkbox">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
 				</div>
             </div>
             <div class="gemini-chat-wrapper">
@@ -155,10 +174,6 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 				</div>
                 <div class="chat-input-area">
                     <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
-					<div class="google-search-toggle">
-                        <input type="checkbox" id="google-search-checkbox" class="form-check-input">
-                        <label for="google-search-checkbox" class="mb-0">Search</label>
-                    </div>
                     <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
                 </div>
             </div>
