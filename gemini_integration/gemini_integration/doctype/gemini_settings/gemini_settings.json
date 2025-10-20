@@ -3,6 +3,7 @@
  "allow_rename": 1,
  "creation": "2025-08-30 13:00:00.000000",
  "doctype": "DocType",
+ "custom_script": "gemini_settings.js",
  "engine": "InnoDB",
  "field_order": [
   "api_key",

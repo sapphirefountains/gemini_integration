@@ -2,6 +2,7 @@ import frappe
 
 from gemini_integration.gemini import (
 	analyze_risks,
+	backfill_embeddings,
 	generate_chat_response,
 	generate_tasks,
 	generate_text,
@@ -208,3 +209,14 @@ def get_conversation(conversation_id):
 	if doc.user != frappe.session.user:
 		frappe.throw("You are not authorized to view this conversation.")
 	return doc
+
+
+@frappe.whitelist()
+def enqueue_backfill_embeddings():
+	"""Enqueues the backfill_embeddings function to run as a background job."""
+	frappe.enqueue(
+		"gemini_integration.gemini.backfill_embeddings",
+		queue="long",
+		timeout=1500,
+	)
+	return {"status": "success", "message": "Embedding backfill process has been started."}
