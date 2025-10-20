@@ -595,6 +595,11 @@ CONTEXT:
 			conversation_history.append({"role": "user", "text": prompt})
 			conversation_history.append({"role": "gemini", "text": final_response_text})
 			save_conversation(conversation_id, prompt, conversation_history)
+
+			# Signal the end of the stream to the client
+			frappe.publish_realtime(
+				"gemini_chat_update", {"end_of_stream": True}, user=frappe.session.user
+			)
 			yield ""
 
 		return stream_generator()

@@ -316,6 +316,54 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		});
 	});
 
+	// --- Streaming Response Handling ---
+	// These variables are defined in a broader scope to be accessible by the event listener.
+	let streaming_bubble = null;
+	let full_response = "";
+
+	frappe.realtime.on("gemini_chat_update", function (data) {
+		// If a new conversation is started, update the global ID and the sidebar.
+		if (data.conversation_id && !currentConversation) {
+			currentConversation = data.conversation_id;
+			load_conversations(); // This will highlight the new conversation
+		}
+
+		// Append the streamed message content to the current bubble.
+		if (data.message) {
+			full_response += data.message;
+			if (streaming_bubble) {
+				// Sanitize and render the cumulative response.
+				streaming_bubble.html(
+					DOMPurify.sanitize(new showdown.Converter().makeHtml(full_response))
+				);
+				// Keep the chat scrolled to the bottom.
+				chat_history.scrollTop(chat_history[0].scrollHeight);
+			}
+		}
+
+		// Display any "thoughts" or tool-use information from the model.
+		if (data.thoughts) {
+			add_to_history("thoughts", data.thoughts);
+		}
+
+		// Render clarification options if the model returns suggestions.
+		if (data.suggestions) {
+			render_clarification_options(full_response, data.suggestions);
+		}
+
+		// Check for the end-of-stream signal.
+		if (data.end_of_stream) {
+			// Re-enable the input fields and reset the button.
+			chat_input.prop("disabled", false);
+			send_btn.prop("disabled", false);
+			send_btn.html('<i class="fa fa-arrow-up"></i>');
+			// Reset the streaming variables for the next message.
+			streaming_bubble = null;
+			full_response = "";
+		}
+	});
+	// --- End Streaming Response Handling ---
+
 	/**
 	 * Sends a message to the Gemini API and displays the response.
 	 * @param {string} [prompt] - The message to send. If not provided, the value from the chat input is used.
@@ -329,36 +377,16 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		add_to_history("user", prompt);
 		chat_input.val("");
 
-		// Disable input and show loading spinner
+		// Disable input and show a loading spinner in the send button.
 		chat_input.prop("disabled", true);
 		send_btn.prop("disabled", true);
 		send_btn.html('<i class="fa fa-spinner fa-spin"></i>');
 
-		// Create a new bubble for the streaming response
-		let bubble = add_to_history("gemini", "");
-		let full_response = "";
+		// Create a new bubble for the streaming response and reset the response text.
+		streaming_bubble = add_to_history("gemini", "");
+		full_response = "";
 
-		frappe.realtime.on("gemini_chat_update", function (data) {
-			if (data.conversation_id && !currentConversation) {
-				currentConversation = data.conversation_id;
-				load_conversations();
-			}
-			if (data.message) {
-				full_response += data.message;
-				bubble.html(
-					DOMPurify.sanitize(new showdown.Converter().makeHtml(full_response))
-				);
-				chat_history.scrollTop(chat_history[0].scrollHeight);
-			}
-			if (data.thoughts) {
-				add_to_history("thoughts", data.thoughts);
-			}
-			if (data.suggestions) {
-				render_clarification_options(full_response, data.suggestions);
-			}
-		});
-
-		// Use frappe.call for streaming
+		// Use frappe.call to trigger the streaming backend method.
 		frappe.call({
 			method: "gemini_integration.api.stream_chat",
 			args: {
@@ -368,21 +396,19 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 				use_google_search: google_search_checkbox.is(":checked"),
 			},
 			callback: function (r) {
-				// This callback is intentionally left empty because the response is streamed.
+				// This callback is intentionally left empty. The UI is updated by the
+				// 'gemini_chat_update' real-time event handler.
 			},
 			error: function (r) {
-				// Re-enable input
+				// In case of an error, re-enable the input fields.
 				chat_input.prop("disabled", false);
 				send_btn.prop("disabled", false);
 				send_btn.html('<i class="fa fa-arrow-up"></i>');
+				// Display the error message in a new chat bubble.
 				add_to_history("gemini", `Error: ${r.message}`);
 			},
-			always: function () {
-				// Re-enable input
-				chat_input.prop("disabled", false);
-				send_btn.prop("disabled", false);
-				send_btn.html('<i class="fa fa-arrow-up"></i>');
-			},
+			// The 'always' callback is removed because the stream's end is now handled
+			// by the 'end_of_stream' event.
 		});
 	};
 
