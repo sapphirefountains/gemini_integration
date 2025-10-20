@@ -454,11 +454,21 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 		}
 
 		if (text) {
+			let sanitized_html;
 			if (window.showdown) {
 				let converter = new showdown.Converter();
-				bubble.html(converter.makeHtml(text));
+				sanitized_html = converter.makeHtml(text);
 			} else {
-				bubble.text(text);
+				// Basic escaping for non-markdown content
+				sanitized_html = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+			}
+
+			// Sanitize the HTML before adding it to the DOM
+			if (window.DOMPurify) {
+				bubble.html(DOMPurify.sanitize(sanitized_html));
+			} else {
+				// Fallback if DOMPurify hasn't loaded for some reason
+				bubble.html(sanitized_html);
 			}
 		}
 
@@ -489,6 +499,11 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 	script.type = "text/javascript";
 	script.src = "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js";
 	document.head.appendChild(script);
+
+	let dompurify_script = document.createElement("script");
+	dompurify_script.type = "text/javascript";
+	dompurify_script.src = "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js";
+	document.head.appendChild(dompurify_script);
 
 	send_btn.on("click", () => send_message());
 

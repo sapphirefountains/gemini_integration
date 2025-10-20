@@ -329,9 +329,8 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					label = (
 						title_field and frappe.db.get_value(doc["doctype"], doc["name"], title_field)
 					) or doc["name"]
-					results_string += (
-						f"- {label} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
-					)
+					doc_url = get_url_to_form(doc["doctype"], doc["name"])
+					results_string += f"- <a href='{doc_url}' target='_blank'>{label}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 					# Add the matching chunk content to the output
 					if doc.get("content"):
 						results_string += f"  - Matching Content: \"...{doc['content'][:150]}...\"\n"
@@ -460,7 +459,8 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 		results_string = f"Found multiple potential matches for your query '{query}'. Please clarify which one you mean:\n"
 		disambiguation_docs = []
 		for doc in sorted_docs[:limit]:
-			results_string += f"- {doc['label']} (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
+			doc_url = get_url_to_form(doc["doctype"], doc["name"])
+			results_string += f"- <a href='{doc_url}' target='_blank'>{doc['label']}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 			disambiguation_docs.append(doc)
 		return {"type": "disambiguation", "docs": disambiguation_docs, "string_representation": results_string}
 
