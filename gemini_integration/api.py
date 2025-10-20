@@ -78,22 +78,31 @@ def chat(prompt=None, model=None, conversation_id=None, use_google_search=False)
 
 @frappe.whitelist()
 def stream_chat(prompt=None, model=None, conversation_id=None, use_google_search=False):
-	"""Handles streaming chat interactions with the Gemini API."""
-	frappe.log_error("stream_chat called", "Gemini Debug")
+	"""Handles streaming chat interactions via a background job."""
 	if not prompt:
 		frappe.throw("A prompt is required.")
 
-	frappe.response["type"] = "csv"
-	frappe.response["doctype"] = "Gemini Chat"
-	frappe.response["filename"] = "response.txt"
+	# Capture the user who initiated the request. This is crucial because inside
+	# the background job, frappe.session.user will be the administrator.
+	initiating_user = frappe.session.user
 
-	def streamer():
-		for chunk in generate_chat_response(
-			prompt, model, conversation_id, use_google_search, stream=True
-		):
-			yield chunk
+	# Enqueue the long-running chat generation task to prevent blocking the UI.
+	# The actual streaming to the client is handled via WebSockets (publish_realtime)
+	# from within the background job.
+	frappe.enqueue(
+		"gemini_integration.gemini.generate_chat_response",
+		queue="short",
+		timeout=300,  # 5 minutes
+		prompt=prompt,
+		model=model,
+		conversation_id=conversation_id,
+		use_google_search=use_google_search,
+		stream=True,
+		user=initiating_user,  # Pass the user context to the background job
+	)
 
-	frappe.response["result"] = streamer()
+	# Return an immediate response to the client to confirm the task has started.
+	return {"status": "queued", "message": "Chat generation process has been started."}
 
 
 @frappe.whitelist()
