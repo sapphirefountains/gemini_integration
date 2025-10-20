@@ -901,6 +901,11 @@ def backfill_embeddings():
 					# This will trigger the on_update hook in hooks.py to generate the embedding
 					frappe.get_doc(doctype, doc.name).save(ignore_permissions=True)
 					frappe.log_info(f"Successfully processed {doctype} - {doc.name}", "Gemini Embedding Backfill")
+				except frappe.MandatoryError as e:
+					frappe.log_error(
+						message=f"Skipped document {doc.name} of doctype {doctype} due to missing mandatory fields: {e!s}",
+						title="Gemini Embedding Backfill - Mandatory Field Error",
+					)
 				except Exception as e:
 					frappe.log_error(
 						message=f"Failed to process document {doc.name} of doctype {doctype}: {e!s}\n{frappe.get_traceback()}",
