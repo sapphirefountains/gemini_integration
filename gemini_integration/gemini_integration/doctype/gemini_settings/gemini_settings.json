@@ -1,6 +1,6 @@
 {
  "actions": [],
- "allow_rename": 1,
+ "allow_rename": 0,
  "creation": "2025-08-30 13:00:00.000000",
  "doctype": "DocType",
  "custom_script": "gemini_settings.js",
@@ -96,8 +96,5 @@
    "write": 1
   }
  ],
- "sort_field": "modified",
- "sort_order": "DESC",
  "states": []
 }
-
