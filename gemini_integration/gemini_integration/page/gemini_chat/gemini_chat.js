@@ -416,14 +416,18 @@ frappe.pages["gemini-chat"].on_page_load = function (wrapper) {
 			}
 
 			if (frappe.session.user_image) {
-				const img = $(`<img src="${frappe.session.user_image}" alt="${frappe.session.user_fullname}">`);
+				let user_image_url = frappe.session.user_image;
+				if (!user_image_url.startsWith("/") && !user_image_url.startsWith("http")) {
+					user_image_url = "/" + user_image_url;
+				}
+				const img = $(`<img src="${user_image_url}" alt="${frappe.session.user_fullname}">`);
 				img.on("error", set_fallback_avatar);
 				avatar.html(img);
 			} else {
 				set_fallback_avatar();
 			}
 		} else {
-			avatar.html('<img src="/assets/gemini_integration/images/gemini_logo.svg" alt="Gemini">');
+			avatar.html('<img src="/app/gemini_integration/public/images/gemini_logo.svg" alt="Gemini">');
 			avatar.css("background-color", "transparent");
 		}
 
