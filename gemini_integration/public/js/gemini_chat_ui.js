@@ -24,14 +24,6 @@ function createGeminiChatUI(parentElement, options = {}) {
             display: flex; flex-grow: 1; position: relative; overflow: hidden; background-color: var(--gemini-bg-color);
             height: 100%;
         }
-        .gemini-chat-page .page-content,
-        .gemini-chat-page .page-content .layout-main-section {
-            display: flex;
-            flex-direction: column;
-            flex-grow: 1;
-            padding: 0 !important;
-            height: 100%;
-        }
         #gemini-chat-container .conversations-sidebar { width: 260px; border-right: 1px solid var(--gemini-border-color); padding: 15px; display: flex; flex-direction: column; transition: transform 0.3s ease; background-color: var(--gemini-sidebar-bg); }
         #gemini-chat-container .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         #gemini-chat-container #new-chat-button { border-radius: 20px; }
