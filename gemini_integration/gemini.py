@@ -709,40 +709,40 @@ CONTEXT:
 					tool_function = mcp._tool_registry[tool_name]["fn"]
 					tool_result_obj = tool_function(**tool_args)
 
-						# --- UNIFIED RESPONSE HANDLING ---
+					# --- UNIFIED RESPONSE HANDLING ---
 
-						# Case 1: Safe Synthesis for confident, structured data
-						is_confident_search = (
-							tool_name == "search_erpnext_documents"
-							and isinstance(tool_result_obj, dict)
-							and tool_result_obj.get("type") == "confident_match"
-						)
-						is_successful_fetch = False
-						fetched_data = None
-						if tool_name == "fetch_erpnext_data":
-							data_to_check = None
-							if isinstance(tool_result_obj, str):
-								try:
-									data_to_check = json.loads(tool_result_obj)
-								except (json.JSONDecodeError, TypeError):
-									pass  # Not a valid JSON string
-							elif isinstance(tool_result_obj, (list, dict)):
-								data_to_check = tool_result_obj
+					# Case 1: Safe Synthesis for confident, structured data
+					is_confident_search = (
+						tool_name == "search_erpnext_documents"
+						and isinstance(tool_result_obj, dict)
+						and tool_result_obj.get("type") == "confident_match"
+					)
+					is_successful_fetch = False
+					fetched_data = None
+					if tool_name == "fetch_erpnext_data":
+						data_to_check = None
+						if isinstance(tool_result_obj, str):
+							try:
+								data_to_check = json.loads(tool_result_obj)
+							except (json.JSONDecodeError, TypeError):
+								pass  # Not a valid JSON string
+						elif isinstance(tool_result_obj, (list, dict)):
+							data_to_check = tool_result_obj
 
-							if data_to_check and "error" not in data_to_check:
-								is_successful_fetch = True
-								fetched_data = data_to_check
+						if data_to_check and "error" not in data_to_check:
+							is_successful_fetch = True
+							fetched_data = data_to_check
 
-						if is_confident_search or is_successful_fetch:
-							factual_data = tool_result_obj.get("doc") if is_confident_search else fetched_data
-							if is_confident_search:
-								conversation_history.append(
-									{"role": "tool_context", "content": json.dumps(tool_result_obj)}
-								)
+					if is_confident_search or is_successful_fetch:
+						factual_data = tool_result_obj.get("doc") if is_confident_search else fetched_data
+						if is_confident_search:
+							conversation_history.append(
+								{"role": "tool_context", "content": json.dumps(tool_result_obj)}
+							)
 
-							safe_synthesis_instruction = """
+						safe_synthesis_instruction = """
 You are an AI assistant for ERPNext. Your primary function is to answer the user's question based *strictly and exclusively* on the factual data provided below. Do not infer, add, or fabricate any information that is not explicitly present in the data. If the provided data does not contain the answer to the user's question, you must state that the information is not available in the provided context. In your response, make sure to mention that the information comes from ERPNext."""
-							final_prompt_content = f'''**User's Original Question:**
+						final_prompt_content = f'''**User's Original Question:**
 "{prompt}"
 
 **Factual Data from ERPNext:**
@@ -751,26 +751,26 @@ You are an AI assistant for ERPNext. Your primary function is to answer the user
 ```
 
 **Your Answer:**'''
-							synthesis_model = genai.GenerativeModel(model_name, system_instruction=safe_synthesis_instruction)
-							synthesis_response = synthesis_model.generate_content(final_prompt_content)
-							try:
-								final_response_text = synthesis_response.text
-							except ValueError:
-								final_response_text = "The model returned a response that could not be displayed."
-							tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": factual_data, "action": "Safe Synthesis Triggered"})
-							current_stream.resolve()
-							break
+						synthesis_model = genai.GenerativeModel(model_name, system_instruction=safe_synthesis_instruction)
+						synthesis_response = synthesis_model.generate_content(final_prompt_content)
+						try:
+							final_response_text = synthesis_response.text
+						except ValueError:
+							final_response_text = "The model returned a response that could not be displayed."
+						tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": factual_data, "action": "Safe Synthesis Triggered"})
+						current_stream.resolve()
+						break
 
-						# Case 2: Direct passthrough for pre-formatted strings
-						elif (isinstance(tool_result_obj, dict) and tool_result_obj.get("type") in ["disambiguation", "no_match", "error"]):
-							final_response_text = tool_result_obj.get("string_representation", "An unexpected error occurred.")
-							tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": final_response_text, "action": "Direct Response Passthrough"})
-							current_stream.resolve()
-							break
+					# Case 2: Direct passthrough for pre-formatted strings
+					elif (isinstance(tool_result_obj, dict) and tool_result_obj.get("type") in ["disambiguation", "no_match", "error"]):
+						final_response_text = tool_result_obj.get("string_representation", "An unexpected error occurred.")
+						tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": final_response_text, "action": "Direct Response Passthrough"})
+						current_stream.resolve()
+						break
 
-						# --- END UNIFIED RESPONSE HANDLING ---
+					# --- END UNIFIED RESPONSE HANDLING ---
 
-						# Determine the representation of the result to send back to the model for all other cases
+					# Determine the representation of the result to send back to the model for all other cases
 					if isinstance(tool_result_obj, dict):
 						tool_result_for_model = tool_result_obj.get(
 							"string_representation", str(tool_result_obj)
