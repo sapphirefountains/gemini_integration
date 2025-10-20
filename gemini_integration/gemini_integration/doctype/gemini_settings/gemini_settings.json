@@ -13,7 +13,8 @@
   "log_level",
   "url_blacklist",
   "contact_confidence_threshold",
-  "embedding_doctypes"
+  "embedding_doctypes",
+  "field_weights"
  ],
  "fields": [
   {
@@ -67,6 +68,13 @@
    "label": "DocTypes for Embedding",
    "options": "DocType",
    "description": "Select the DocTypes that should be indexed for semantic search."
+  },
+  {
+   "fieldname": "field_weights",
+   "fieldtype": "Table",
+   "label": "Embedding Field Weights",
+   "options": "Embedding Field Weight",
+   "description": "Define weights for specific fields to give them more importance in the embedding."
   }
  ],
  "issingle": 1,

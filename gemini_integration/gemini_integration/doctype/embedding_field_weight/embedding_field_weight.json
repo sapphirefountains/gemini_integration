@@ -1,0 +1,50 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-05-21 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "doctype_name",
+  "field_name",
+  "weight"
+ ],
+ "fields": [
+  {
+   "fieldname": "doctype_name",
+   "fieldtype": "Link",
+   "label": "DocType",
+   "in_list_view": 1,
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "field_name",
+   "fieldtype": "Data",
+   "label": "Field Name",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "weight",
+   "fieldtype": "Int",
+   "label": "Weight",
+   "in_list_view": 1,
+   "reqd": 1,
+   "default": "1"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-05-21 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Gemini Integration",
+ "name": "Embedding Field Weight",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
