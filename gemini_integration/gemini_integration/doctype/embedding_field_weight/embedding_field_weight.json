@@ -1,6 +1,5 @@
 {
  "actions": [],
- "allow_rename": 1,
  "creation": "2024-05-21 12:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -44,7 +43,5 @@
  "name": "Embedding Field Weight",
  "owner": "Administrator",
  "permissions": [],
- "sort_field": "modified",
- "sort_order": "DESC",
  "track_changes": 1
 }
