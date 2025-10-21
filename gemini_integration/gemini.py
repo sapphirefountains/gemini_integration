@@ -4,102 +4,6 @@ import json
 import re
 from datetime import datetime, timedelta
 
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
-import base64
-import copy
-import json
-import re
-from datetime import datetime, timedelta
-
 import frappe
 import google.generativeai as genai
 import requests
@@ -448,6 +352,7 @@ def generate_chat_response(
 	# If no specific services are mentioned, the model will act as a general chatbot.
 	# If services are mentioned, we gather the appropriate tools.
 	if mentioned_services:
+		pass
 # --- SERVICE TO TOOL MAPPING ---
 
 # This dictionary maps the user-facing @-mention service to a list of tool function names.
