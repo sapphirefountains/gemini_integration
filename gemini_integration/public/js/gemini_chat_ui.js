@@ -49,6 +49,9 @@ function createGeminiChatUI(parentElement, options = {}) {
 		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; text-align: center; margin: auto; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
 		#gemini-chat-container .greeting-subtitle { font-size: 16px; color: var(--gemini-light-text); }
+        #gemini-chat-container .gemini-tool-buttons { display: flex; flex-wrap: wrap; justify-content: center; padding: 10px 20px 20px; max-width: 600px; margin: 0 auto; }
+        #gemini-chat-container .gemini-tool-btn { background-color: var(--gemini-model-bubble); border: 1px solid var(--gemini-border-color); color: var(--gemini-text-color); border-radius: 20px; padding: 8px 15px; margin: 5px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 0.2s; }
+        #gemini-chat-container .gemini-tool-btn:hover { background-color: #e0e2e6; }
         #gemini-chat-container .context-indicator { display: none; text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 10px; border-radius: 12px; }
         #gemini-chat-container .context-indicator.clickable-context { cursor: pointer; transition: background-color 0.2s ease; }
         #gemini-chat-container .context-indicator.clickable-context:hover { background-color: #d2e3fc; }
@@ -146,6 +149,7 @@ function createGeminiChatUI(parentElement, options = {}) {
 	let sidebar_toggle_btn = container.find(".sidebar-toggle-btn");
 	let close_sidebar_btn = container.find("#close-sidebar-btn");
     let conversation = [];
+    let available_tools = [];
 
 	sidebar_toggle_btn.on("click", (e) => {
 		e.stopPropagation();
@@ -320,6 +324,24 @@ function createGeminiChatUI(parentElement, options = {}) {
         }
     });
 
+    // Handle tool button clicks
+    chat_history.on("click", ".gemini-tool-btn", function (e) {
+        e.preventDefault();
+        const mention = $(this).data("mention");
+        if (mention) {
+            let current_val = chat_input.val();
+            // Add a leading space if the input is not empty
+            if (current_val && !current_val.endsWith(' ')) {
+                chat_input.val(current_val + ' ' + mention + ' ');
+            } else {
+                // Otherwise, just append the mention and a space
+                chat_input.val(current_val + mention + ' ');
+            }
+            // Focus the input to allow the user to keep typing
+            chat_input.focus();
+        }
+    });
+
     const load_conversations = () => {
         frappe.call({
             method: "gemini_integration.api.get_conversations",
@@ -356,7 +378,23 @@ function createGeminiChatUI(parentElement, options = {}) {
             ? `How can I help you with ${page_context.doctype} ${page_context.docname}?`
             : "How can I help you today?";
 
-        chat_history.html(`<div class="greeting-card"><h1 class="greeting-title">Hello, ${frappe.session.user_fullname}</h1><p class="greeting-subtitle">${greeting_subtitle}</p></div>`);
+        // Generate the HTML for the tool buttons if they are available
+        let buttons_html = "";
+        if (available_tools.length > 0) {
+            buttons_html = available_tools.map(btn => {
+                return `<button class="btn gemini-tool-btn" data-mention="${btn.mention}">${btn.label}</button>`;
+            }).join('');
+        }
+
+        chat_history.html(`
+            <div class="greeting-card">
+                <h1 class="greeting-title">Hello, ${frappe.session.user_fullname}</h1>
+                <p class="greeting-subtitle">${greeting_subtitle}</p>
+            </div>
+            <div class="gemini-tool-buttons">
+                ${buttons_html}
+            </div>
+        `);
 
         if (page_context) {
             const indicator = container.find(".context-indicator");
@@ -421,5 +459,15 @@ function createGeminiChatUI(parentElement, options = {}) {
     });
 
     load_conversations();
-    show_greeting();
+    // Fetch the available tools and then render the greeting
+    frappe.call({
+        method: "gemini_integration.api.get_tool_mentions",
+        callback: (r) => {
+            if (r.message && Array.isArray(r.message)) {
+                available_tools = r.message;
+            }
+            // Always show the greeting, even if the tools fail to load
+            show_greeting();
+        }
+    });
 }

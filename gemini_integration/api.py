@@ -255,3 +255,23 @@ def enqueue_backfill_embeddings():
 		timeout=1500,
 	)
 	return {"status": "success", "message": "Embedding backfill process has been started."}
+
+
+@frappe.whitelist()
+def get_tool_mentions():
+	"""Retrieves a formatted list of tool @-mentions for the UI.
+
+	Returns:
+	    list[dict]: A list of dictionaries, each with "label" and "mention" keys.
+	"""
+	from gemini_integration.gemini import SERVICE_TO_TOOL_MAP
+
+	# The 'google' mention is a general one that includes all others,
+	# so we can exclude it from the buttons to avoid redundancy.
+	excluded_services = ["google"]
+
+	tool_buttons = []
+	for mention, details in SERVICE_TO_TOOL_MAP.items():
+		if mention not in excluded_services:
+			tool_buttons.append({"label": details.get("label"), "mention": f"@{mention}"})
+	return tool_buttons

@@ -448,40 +448,130 @@ def generate_chat_response(
 	# If no specific services are mentioned, the model will act as a general chatbot.
 	# If services are mentioned, we gather the appropriate tools.
 	if mentioned_services:
-		# Create a mapping from the service mention to the tool function names.
-		# This is more robust than relying on direct name matching.
-		service_to_tool_map = {
-			"erpnext": [
-				"search_erpnext_documents",
-				"fetch_erpnext_data",
-				"create_comment",
-				"create_task",
-				"update_document_status",
-			],
-			"google": [
-				"search_drive",
-				"search_gmail",
-				"search_calendar",
-				"search_google_contacts",
-			],
-			"drive": ["search_drive"],
-			"gmail": [
-				"send_email",
-				"search_gmail",
-				"get_gmail_message_context",
-				"modify_gmail_label",
-				"delete_gmail_message",
-			],
-			"calendar": ["search_calendar"],
-			"contacts": ["search_google_contacts"],
-		}
+# --- SERVICE TO TOOL MAPPING ---
 
+# This dictionary maps the user-facing @-mention service to a list of tool function names.
+# This makes it easy to manage which tools are exposed for each service and allows for reuse.
+SERVICE_TO_TOOL_MAP = {
+    "erpnext": {
+        "label": "@ERPNext",
+        "tools": [
+            "search_erpnext_documents",
+            "fetch_erpnext_data",
+            "create_comment",
+            "create_task",
+            "update_document_status",
+        ],
+    },
+    "google": {
+        "label": "@Google",
+        "tools": [
+            "search_drive",
+            "search_gmail",
+            "search_calendar",
+            "search_google_contacts",
+        ],
+    },
+    "drive": {"label": "@Drive", "tools": ["search_drive"]},
+    "gmail": {
+        "label": "@Gmail",
+        "tools": [
+            "send_email",
+            "search_gmail",
+            "get_gmail_message_context",
+            "modify_gmail_label",
+            "delete_gmail_message",
+        ],
+    },
+    "calendar": {"label": "@Calendar", "tools": ["search_calendar"]},
+    "contacts": {"label": "@Contacts", "tools": ["search_google_contacts"]},
+}
+
+
+@log_activity
+@handle_errors
+def generate_chat_response(
+	prompt,
+	model=None,
+	conversation_id=None,
+	use_google_search=False,
+	stream=False,
+	user=None,
+	doctype=None,
+	docname=None,
+):
+	"""Handles chat interactions by routing them to the correct MCP tools.
+
+	Args:
+	    prompt (str): The user's chat prompt.
+	    model (str, optional): The model to use for the chat. Defaults to None.
+	    conversation_id (str, optional): The ID of the existing conversation. Defaults to None.
+	    use_google_search (bool, optional): Whether to enable Google Search for this query.
+	        Defaults to False.
+	    stream (bool, optional): Whether to stream the response. Defaults to False.
+	    user (str, optional): The user initiating the request. This is crucial for background jobs.
+	        Defaults to None.
+	    doctype (str, optional): The DocType of the document the user is viewing. Defaults to None.
+	    docname (str, optional): The name of the document the user is viewing. Defaults to None.
+
+	Returns:
+	    dict or generator: A dictionary containing the response, thoughts, and conversation ID,
+	        or a generator that yields the response chunks.
+	"""
+	# Configure the Gemini client before proceeding
+	settings = frappe.get_single("Gemini Settings")
+	api_key = settings.get_password("api_key")
+	if not api_key:
+		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
+
+	try:
+		genai.configure(api_key=api_key)
+	except Exception as e:
+		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
+		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
+
+	# --- Image Generation Logic ---
+	image_url = None
+	image_keywords = [
+		"generate a picture of", "create a picture of", "generate an image of",
+		"create an image of", "show me a picture of", "draw a picture of",
+		"generate a photo of", "create a photo of", "show me an image of"
+	]
+	is_image_request = any(keyword in prompt.lower() for keyword in image_keywords)
+
+	if is_image_request:
+		image_url = generate_image(prompt)
+	# --- End Image Generation Logic ---
+
+	from gemini_integration.mcp import mcp
+
+	# Load the conversation history from the database if a conversation ID is provided.
+	# The Gemini API expects a specific format, so we will transform it later.
+	conversation_history = []
+	if conversation_id:
+		try:
+			conversation_doc = frappe.get_doc("Gemini Conversation", conversation_id)
+			if conversation_doc.conversation:
+				# The conversation is stored as a JSON string.
+				conversation_history = json.loads(conversation_doc.conversation)
+		except frappe.DoesNotExistError:
+			# If the conversation ID is invalid, we start a new conversation.
+			conversation_id = None
+
+	# 1. Determine which toolsets to use based on @-mentions and search settings.
+	mentioned_services = re.findall(r"@(\w+)", prompt.lower())
+	tool_declarations = []
+
+	# If no specific services are mentioned, the model will act as a general chatbot.
+	# If services are mentioned, we gather the appropriate tools.
+	if mentioned_services:
 		# Get a list of all tool names to add based on the mentions.
 		tools_to_add = set()
 		for service in mentioned_services:
-			tool_names = service_to_tool_map.get(service, [])
-			for tool_name in tool_names:
-				tools_to_add.add(tool_name)
+			service_info = SERVICE_TO_TOOL_MAP.get(service)
+			if service_info:
+				for tool_name in service_info.get("tools", []):
+					tools_to_add.add(tool_name)
 
 		# Now, add the tool declarations for the selected tools.
 		for tool_name in tools_to_add:
