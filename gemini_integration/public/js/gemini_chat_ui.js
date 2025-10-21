@@ -48,7 +48,9 @@ function createGeminiChatUI(parentElement, options = {}) {
 		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; text-align: center; margin: auto; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
 		#gemini-chat-container .greeting-subtitle { font-size: 16px; color: var(--gemini-light-text); }
-        #gemini-chat-container .context-indicator { text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 20px; border-radius: 12px; }
+        #gemini-chat-container .context-indicator { display: none; text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 20px; border-radius: 12px; }
+        #gemini-chat-container .context-indicator.clickable-context { cursor: pointer; transition: background-color 0.2s ease; }
+        #gemini-chat-container .context-indicator.clickable-context:hover { background-color: #d2e3fc; }
         #gemini-chat-container .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin: 0 20px 20px; }
         #gemini-chat-container .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		#gemini-chat-container .chat-input-area textarea:focus { box-shadow: none; }
@@ -114,7 +116,7 @@ function createGeminiChatUI(parentElement, options = {}) {
 				</div>
                 <div class="chat-history"></div>
                 <div class="chat-input-wrapper">
-                    <div class="context-indicator" style="display: none;"></div>
+                    <div class="context-indicator"></div>
                     <div class="chat-input-area">
                         <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
                         <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
@@ -352,7 +354,17 @@ function createGeminiChatUI(parentElement, options = {}) {
 
         if (page_context) {
             const indicator = container.find(".context-indicator");
-            indicator.text(`Asking about ${page_context.doctype} ${page_context.docname}`).show();
+            const new_html = `
+                <span>You're viewing <strong>${page_context.docname}</strong>.</span>
+                <span class="hidden-xs">Try asking: "Summarize this ${page_context.doctype}"</span>
+            `;
+            indicator.html(new_html).addClass("clickable-context").show();
+
+            indicator.on("click", function(e) {
+                e.preventDefault();
+                const suggested_prompt = `Summarize this ${page_context.doctype}`;
+                send_message(suggested_prompt);
+            });
         }
     };
 
