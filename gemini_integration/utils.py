@@ -39,15 +39,12 @@ def log_activity(func):
 	def wrapper(*args, **kwargs):
 		log_level = get_log_level()
 		if log_level == "Debug":
-			frappe.log(
-				f"Calling function {func.__name__} with args: {args}, kwargs: {kwargs}",
-				"Gemini Integration Debug",
-			)
+			frappe.log(f"Calling function {func.__name__} with args: {args}, kwargs: {kwargs}")
 
 		result = func(*args, **kwargs)
 
 		if log_level == "Debug":
-			frappe.log(f"Function {func.__name__} returned: {result}", "Gemini Integration Debug")
+			frappe.log(f"Function {func.__name__} returned: {result}")
 
 		return result
 
@@ -82,8 +79,11 @@ def handle_errors(func):
 					title="Gemini Integration Error",
 				)
 
-			# Throw a user-friendly error message
-			frappe.throw("An unexpected error occurred. Please contact the system administrator.")
+			# Throw a more informative error message
+			error_type = type(e).__name__
+			frappe.throw(
+				f"An unexpected error occurred: {error_type}. Please contact the system administrator."
+			)
 
 	return wrapper
 
