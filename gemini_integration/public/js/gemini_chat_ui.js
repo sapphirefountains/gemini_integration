@@ -71,8 +71,8 @@ function createGeminiChatUI(parentElement, options = {}) {
             #gemini-chat-container .page-header { display: block; }
             #gemini-chat-container .conversations-sidebar { position: absolute; top: 0; left: 0; height: 100%; z-index: 10; background: var(--gemini-sidebar-bg); transform: translateX(-100%); box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
             #gemini-chat-container.sidebar-open .conversations-sidebar { transform: translateX(0); }
-            #gemini-chat-container .gemini-chat-wrapper { padding: 0; height: 100%; }
-			#gemini-chat-container .chat-history { min-height: 0; }
+            #gemini-chat-container .gemini-chat-wrapper { padding: 0; height: 100%; display: flex; flex-direction: column; }
+			#gemini-chat-container .chat-history { flex-grow: 1; min-height: 0; }
 			#gemini-chat-container .chat-input-area { margin: 0 15px 15px; }
         }
     `;
