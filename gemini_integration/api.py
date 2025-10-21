@@ -77,7 +77,9 @@ def chat(prompt=None, model=None, conversation_id=None, use_google_search=False)
 
 
 @frappe.whitelist()
-def stream_chat(prompt=None, model=None, conversation_id=None, use_google_search=False):
+def stream_chat(
+	prompt=None, model=None, conversation_id=None, use_google_search=False, doctype=None, docname=None
+):
 	"""Handles streaming chat interactions via a background job."""
 	if not prompt:
 		frappe.throw("A prompt is required.")
@@ -99,6 +101,8 @@ def stream_chat(prompt=None, model=None, conversation_id=None, use_google_search
 		use_google_search=use_google_search,
 		stream=True,
 		user=initiating_user,  # Pass the user context to the background job
+		doctype=doctype,
+		docname=docname,
 	)
 
 	# Return an immediate response to the client to confirm the task has started.
