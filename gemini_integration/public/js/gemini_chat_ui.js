@@ -5,6 +5,7 @@ function createGeminiChatUI(parentElement, options = {}) {
     container.html(""); // Clear any existing content
 
     let currentConversation = null;
+    let is_context_active = false;
     let page_context = options.doctype && options.docname ? { doctype: options.doctype, docname: options.docname } : null;
 
     const styles = `
@@ -48,9 +49,12 @@ function createGeminiChatUI(parentElement, options = {}) {
 		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; text-align: center; margin: auto; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
 		#gemini-chat-container .greeting-subtitle { font-size: 16px; color: var(--gemini-light-text); }
-        #gemini-chat-container .context-indicator { display: none; text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 20px; border-radius: 12px; }
+        #gemini-chat-container .context-indicator { display: none; text-align: center; padding: 8px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 10px; border-radius: 12px; }
         #gemini-chat-container .context-indicator.clickable-context { cursor: pointer; transition: background-color 0.2s ease; }
         #gemini-chat-container .context-indicator.clickable-context:hover { background-color: #d2e3fc; }
+        #gemini-chat-container .context-action { display: none; text-align: center; padding: 0 20px 10px; }
+        #gemini-chat-container .active-context-indicator { display: none; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; background-color: #e8f0fe; color: #1967d2; margin: 0 20px 10px; border-radius: 12px; }
+        #gemini-chat-container .active-context-indicator .btn-remove-context { font-size: 16px; padding: 0 5px; }
         #gemini-chat-container .chat-input-area { display: flex; align-items: center; gap: 15px; position: relative; background-color: var(--gemini-input-bg); padding: 10px 20px; border-radius: 28px; border: 1px solid var(--gemini-border-color); margin: 0 20px 20px; }
         #gemini-chat-container .chat-input-area textarea { flex-grow: 1; border: none; outline: none; resize: none; background-color: transparent; font-size: 16px; }
 		#gemini-chat-container .chat-input-area textarea:focus { box-shadow: none; }
@@ -117,6 +121,8 @@ function createGeminiChatUI(parentElement, options = {}) {
                 <div class="chat-history"></div>
                 <div class="chat-input-wrapper">
                     <div class="context-indicator"></div>
+                    <div class="context-action"></div>
+                    <div class="active-context-indicator"></div>
                     <div class="chat-input-area">
                         <textarea class="form-control" rows="1" placeholder="Enter a prompt here"></textarea>
                         <button class="btn btn-primary send-btn"><i class="fa fa-arrow-up"></i></button>
@@ -260,7 +266,7 @@ function createGeminiChatUI(parentElement, options = {}) {
 			use_google_search: google_search_checkbox.is(":checked"),
 		};
 
-		if (page_context) {
+		if (page_context && is_context_active) {
 			args.doctype = page_context.doctype;
 			args.docname = page_context.docname;
 		}
@@ -354,17 +360,50 @@ function createGeminiChatUI(parentElement, options = {}) {
 
         if (page_context) {
             const indicator = container.find(".context-indicator");
-            const new_html = `
-                <span>You're viewing <strong>${page_context.docname}</strong>.</span>
-                <span class="hidden-xs">Try asking: "Summarize this ${page_context.doctype}"</span>
-            `;
-            indicator.html(new_html).addClass("clickable-context").show();
+            const action_btn_container = container.find(".context-action");
+            const active_indicator = container.find(".active-context-indicator");
 
-            indicator.on("click", function(e) {
+            const update_context_ui = () => {
+                if (is_context_active) {
+                    indicator.hide();
+                    action_btn_container.hide();
+                    active_indicator.html(`
+                        <span>Now discussing: <strong>${page_context.docname}</strong></span>
+                        <button class="btn btn-default btn-xs btn-remove-context">&times;</button>
+                    `).css("display", "flex");
+                } else {
+                    active_indicator.hide();
+                    const new_html = `
+                        <span>You're viewing <strong>${page_context.docname}</strong>.</span>
+                        <span class="hidden-xs">Try asking: "Summarize this ${page_context.doctype}"</span>
+                    `;
+                    indicator.html(new_html).addClass("clickable-context").show();
+                     action_btn_container.html(`
+                        <button class="btn btn-default btn-sm btn-activate-context">
+                            <i class="fa fa-plus" style="margin-right: 5px;"></i>
+                            Discuss the current ${page_context.doctype}
+                        </button>
+                    `).show();
+                }
+            };
+
+            indicator.off("click").on("click", function (e) {
                 e.preventDefault();
                 const suggested_prompt = `Summarize this ${page_context.doctype}`;
-                send_message(suggested_prompt);
+                chat_input.val(suggested_prompt).focus();
             });
+
+            action_btn_container.off("click").on("click", ".btn-activate-context", function() {
+                is_context_active = true;
+                update_context_ui();
+            });
+
+            active_indicator.off("click").on("click", ".btn-remove-context", function() {
+                is_context_active = false;
+                update_context_ui();
+            });
+
+            update_context_ui();
         }
     };
 

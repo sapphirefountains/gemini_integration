@@ -16,7 +16,16 @@ function setupGeminiChatWidget() {
         #gemini-chat-overlay.visible { transform: translateY(0); }
         #gemini-chat-overlay-header { padding: 10px 20px; border-bottom: 1px solid #e0e2e6; display: flex; justify-content: space-between; align-items: center; }
         #gemini-chat-overlay-header h5 { margin: 0; font-weight: 500; }
-        #gemini-chat-overlay-content { flex-grow: 1; overflow: hidden; }
+        #gemini-chat-overlay-content { flex-grow: 1; overflow: auto; }
+
+        @media (max-width: 768px) {
+            #gemini-chat-overlay {
+                width: 100vw;
+                height: 100vh;
+                right: 0;
+                border-radius: 0;
+            }
+        }
     `;
 	document.head.appendChild(style);
 
