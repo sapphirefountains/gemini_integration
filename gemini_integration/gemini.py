@@ -659,7 +659,7 @@ CONTEXT:
 							detected_doctype = _get_doctype_from_prompt(prompt)
 							if detected_doctype:
 								tool_args["doctype"] = detected_doctype
-								frappe.log_info(
+								frappe.log(
 									f"Inferred DocType '{detected_doctype}' for search from prompt.",
 									"Gemini Integration",
 								)
@@ -667,7 +667,7 @@ CONTEXT:
 						# use the original prompt as the query for semantic search.
 						if not tool_args.get("query"):
 							tool_args["query"] = prompt
-							frappe.log_info(
+							frappe.log(
 								"No query found for search. Using the original prompt as the query.",
 								"Gemini Integration",
 							)
@@ -1198,7 +1198,7 @@ def backfill_embeddings():
 		doctypes_to_embed = [link.doctype_name for link in settings.get("embedding_doctypes", [])]
 
 		if not doctypes_to_embed:
-			frappe.log_info("No DocTypes configured for embedding in Gemini Settings.", "Gemini Integration")
+			frappe.log("No DocTypes configured for embedding in Gemini Settings.", "Gemini Integration")
 			return
 
 		for doctype in doctypes_to_embed:
@@ -1225,7 +1225,7 @@ def backfill_embeddings():
 						doctype=doctype,
 						docname=docname,
 					)
-					frappe.log_info(f"Successfully enqueued embedding generation for {doctype} - {docname}", "Gemini Embedding Backfill")
+					frappe.log(f"Successfully enqueued embedding generation for {doctype} - {docname}", "Gemini Embedding Backfill")
 
 				except Exception as e:
 					frappe.log_error(
