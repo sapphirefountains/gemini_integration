@@ -405,501 +405,236 @@ def generate_chat_response(
 	doctype=None,
 	docname=None,
 ):
-	"""Handles chat interactions by routing them to the correct MCP tools.
+	"""Handles chat interactions using a Plan-Execute-Synthesize model.
 
 	Args:
-	    prompt (str): The user's chat prompt.
-	    model (str, optional): The model to use for the chat. Defaults to None.
-	    conversation_id (str, optional): The ID of the existing conversation. Defaults to None.
-	    use_google_search (bool, optional): Whether to enable Google Search for this query.
-	        Defaults to False.
-	    stream (bool, optional): Whether to stream the response. Defaults to False.
-	    user (str, optional): The user initiating the request. This is crucial for background jobs.
-	        Defaults to None.
-	    doctype (str, optional): The DocType of the document the user is viewing. Defaults to None.
-	    docname (str, optional): The name of the document the user is viewing. Defaults to None.
+		prompt (str): The user's chat prompt.
+		model (str, optional): The model to use for the chat. Defaults to None.
+		conversation_id (str, optional): The ID of the existing conversation. Defaults to None.
+		use_google_search (bool, optional): Whether to enable Google Search for this query.
+			Defaults to False.
+		stream (bool, optional): Whether to stream the response. Defaults to False.
+		user (str, optional): The user initiating the request. This is crucial for background jobs.
+			Defaults to None.
+		doctype (str, optional): The DocType of the document the user is viewing. Defaults to None.
+		docname (str, optional): The name of the document the user is viewing. Defaults to None.
 
 	Returns:
-	    dict or generator: A dictionary containing the response, thoughts, and conversation ID,
-	        or a generator that yields the response chunks.
+		dict or None: A dictionary containing the response for non-streaming calls,
+			or None for streaming calls (which use WebSockets).
 	"""
-	# Configure the Gemini client before proceeding
+	# --- 0. Setup and Configuration ---
 	settings = frappe.get_single("Gemini Settings")
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
-
 	try:
 		genai.configure(api_key=api_key)
 	except Exception as e:
 		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
 		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
 
-	# --- Image Generation Logic ---
-	image_url = None
-	image_keywords = [
-		"generate a picture of", "create a picture of", "generate an image of",
-		"create an image of", "show me a picture of", "draw a picture of",
-		"generate a photo of", "create a photo of", "show me an image of"
-	]
-	is_image_request = any(keyword in prompt.lower() for keyword in image_keywords)
-
-	if is_image_request:
-		image_url = generate_image(prompt)
-	# --- End Image Generation Logic ---
-
 	from gemini_integration.mcp import mcp
+	from gemini_integration.utils import is_google_integrated
 
-	# Load the conversation history from the database if a conversation ID is provided.
-	# The Gemini API expects a specific format, so we will transform it later.
+	model_name = model or settings.default_model or "gemini-1.5-pro"
+
+	# Load conversation history
 	conversation_history = []
 	if conversation_id:
 		try:
 			conversation_doc = frappe.get_doc("Gemini Conversation", conversation_id)
 			if conversation_doc.conversation:
-				# The conversation is stored as a JSON string.
 				conversation_history = json.loads(conversation_doc.conversation)
 		except frappe.DoesNotExistError:
-			# If the conversation ID is invalid, we start a new conversation.
 			conversation_id = None
 
-	# 1. Determine which toolsets to use based on @-mentions and search settings.
-	mentioned_services = re.findall(r"@(\w+)", prompt.lower())
+	# For streaming, ensure a conversation ID exists to send back to the client
+	if stream and not conversation_id:
+		conversation_id = save_conversation(None, prompt, [], user=user)
+		frappe.publish_realtime("gemini_chat_update", {"conversation_id": conversation_id}, user=user)
+
+	# --- 1. Planning Phase ---
+	# Provide the model with a "menu" of all available tools.
 	tool_declarations = []
+	for tool_name, tool_data in mcp._tool_registry.items():
+		# Sanitize the tool declaration for the Google API
+		input_schema = tool_data.get("input_schema")
+		if input_schema and "properties" in input_schema:
+			parameters = {
+				"type": "object",
+				"properties": input_schema.get("properties", {}),
+				"required": input_schema.get("required", []),
+			}
+		else:
+			parameters = None
 
-	# If no specific services are mentioned, the model will act as a general chatbot.
-	# If services are mentioned, we gather the appropriate tools.
-	if mentioned_services:
-		# Get a list of all tool names to add based on the mentions.
-		tools_to_add = set()
-		for service in mentioned_services:
-			service_info = SERVICE_TO_TOOL_MAP.get(service)
-			if service_info:
-				for tool_name in service_info.get("tools", []):
-					tools_to_add.add(tool_name)
+		declaration = {
+			"name": tool_data.get("name"),
+			"description": tool_data.get("description"),
+			"parameters": parameters,
+		}
+		declaration = {k: v for k, v in declaration.items() if v is not None}
+		if "parameters" in declaration:
+			declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
+		tool_declarations.append(declaration)
 
-		# Now, add the tool declarations for the selected tools.
-		for tool_name in tools_to_add:
-			if tool_name in mcp._tool_registry:
-				tool = mcp._tool_registry[tool_name]
-				# Sanitize the tool declaration for the Google API
-				input_schema = tool.get("input_schema")
-				if input_schema and "properties" in input_schema:
-					parameters = {
-						"type": "object",
-						"properties": input_schema.get("properties", {}),
-						"required": input_schema.get("required", []),
-					}
-				else:
-					parameters = None # Should not happen if schema is well-formed
-
-				declaration = {
-					"name": tool.get("name"),
-					"description": tool.get("description"),
-					"parameters": parameters,
-				}
-				declaration = {k: v for k, v in declaration.items() if v is not None}
-				if "parameters" in declaration:
-					declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
-				tool_declarations.append(declaration)
-
-	# Add the Google Search tool if enabled.
 	if settings.enable_google_search and use_google_search:
 		tool_declarations.append({"google_search": {}})
 
-	# If no tools are selected (no mentions, no search), the tool_declarations list will be empty,
-	# and the model will behave like a standard chatbot, which is the desired behavior.
+	# Craft the "Planner" instruction
+	planning_instruction = """
+You are a planner for an AI assistant integrated into ERPNext. Your job is to analyze the user's prompt and the list of available tools.
+Break the user's request into a series of steps.
+Output this plan as a valid JSON list of tool calls to be executed.
+Each object in the list must have 'tool_name' and 'args' keys.
+If no tools are needed for the prompt, respond with a friendly, conversational answer directly, NOT as JSON.
+"""
+	if doctype and docname:
+		planning_instruction += f"\n\nThe user is currently viewing the document '{docname}' of type '{doctype}'. Prioritize this information when creating the plan."
 
-	# 2. Check for Google authentication if Google services are mentioned.
-	# We don't need to pass credentials around, as the tools get them directly.
-	google_services_mentioned = any(
-		service in ["google", "gmail", "drive", "calendar", "contacts"] for service in mentioned_services
+	planner_model = genai.GenerativeModel(
+		model_name,
+		tools=tool_declarations,
+		tool_config={"function_calling_config": {"mode": "ANY"}}, # Use ANY to allow for direct response or tool plan
+		system_instruction=planning_instruction,
 	)
-	if google_services_mentioned:
-		from gemini_integration.utils import is_google_integrated
 
-		if not is_google_integrated():
-			return {
-				"response": "Please connect your Google account to use this feature.",
-				"thoughts": "User is not authenticated with Google.",
-				"conversation_id": conversation_id,
-			}
+	planner_chat = planner_model.start_chat()
+	planner_response = planner_chat.send_message(prompt)
 
-	# 3. Set up the model with the dynamically selected tools and context.
-	model_name = model or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
+	# --- 2. Direct Response Fallback ---
+	# Check if the planner returned a direct text response instead of a tool-use plan.
+	try:
+		# A valid plan is a parsable JSON string that is a non-empty list.
+		execution_plan = json.loads(planner_response.text)
+		if not isinstance(execution_plan, list) or not execution_plan:
+			# If it's an empty list `[]` or not a list, treat it as a direct response.
+			raise ValueError("Not a valid execution plan.")
+	except (json.JSONDecodeError, ValueError):
+		# The response is not a valid JSON plan, so it's the final answer.
+		final_response_text = _linkify_erpnext_docs(planner_response.text)
 
-	# --- Context Injection and Automatic Tool Call ---
-	# A list of generic prompts that should trigger an automatic context fetch.
-	generic_prompts = [
-		"summarize this", "summarize", "explain this", "explain", "describe this", "what is this",
-		"give me a summary", "can you summarize this?", "tell me about this"
-	]
-
-	document_context_for_model = ""
-	# If context is provided, we might need to pre-emptively fetch the document.
-	if doctype and docname:
-		# Check if the prompt is generic enough to warrant an automatic fetch.
-		if prompt.strip().lower() in generic_prompts:
-			try:
-				# Automatically call the tool to get the document's content.
-				context_result = get_doc_context(doctype=doctype, docname=docname)
-				if isinstance(context_result, dict) and context_result.get("string_representation"):
-					document_context_for_model = context_result["string_representation"]
-			except Exception as e:
-				# If the tool call fails, we log it but don't block the chat.
-				# The model can still proceed with the basic context.
-				frappe.log_error(
-					f"Automatic context fetch failed for {doctype} {docname}: {e!s}",
-					"Gemini Integration",
-				)
-
-	# --- System Instruction Setup ---
-	# Add a system instruction to ground the model and prevent hallucinations.
-	system_instruction = """
-You are an AI assistant integrated into ERPNext. When you use tools to access ERPNext data (like 'search_erpnext_documents'), you must strictly follow these rules:
-1. Base your answers ONLY on the information returned by the tool.
-2. If the tool returns a message like 'No documents found', you MUST state that you did not find any matching documents. Do NOT invent or suggest documents from your own knowledge.
-3. If the tool returns a list of potential matches, you MUST present this list to the user for clarification. Do NOT treat it as a final answer.
-4. Clearly separate information that comes from ERPNext tools from your general knowledge. For example, say 'I found the following in ERPNext...' when presenting tool results.
-"""
-	if doctype and docname:
-		system_instruction += f"\n\n--- CURRENT PAGE CONTEXT ---\nThe user is currently viewing the document '{docname}' of type '{doctype}'. You should use the available @ERPNext tools to answer questions about it. Prioritize this information to answer their questions."
-		if document_context_for_model:
-			system_instruction += "\n\nThe full content of this document has been pre-fetched for you. Use it to answer the user's prompt.\n"
-			system_instruction += f"DOCUMENT CONTENT:\n{document_context_for_model}"
-		system_instruction += "\n--- END CONTEXT ---"
-
-
-	# Find the most recent tool context in the history and add it to the system prompt.
-	latest_context = None
-	for entry in reversed(conversation_history):
-		if entry.get("role") == "tool_context":
-			try:
-				content = entry.get("content")
-				context_data = json.loads(content) if isinstance(content, str) else content
-				if isinstance(context_data, dict) and "doc" in context_data:
-					latest_context = json.dumps(context_data["doc"], indent=2)
-					break
-			except (json.JSONDecodeError, TypeError):
-				continue
-
-	if latest_context:
-		context_instruction = f"""---
-HERE IS THE CONTEXT FOR THE CURRENT CONVERSATION.
-A tool was previously run and returned the following data about a specific document.
-You MUST use this data to answer the user's follow-up questions about this document.
-If the user asks for information that is clearly not in this data, you may use your tools again to find more specific details related to this document.
-
-CONTEXT:
-{latest_context}
----
-"""
-		system_instruction += context_instruction
-
-	# Now, initialize the model with the final, context-aware system instruction.
-	if tool_declarations:
-		tool_config = {"function_calling_config": {"mode": "AUTO"}}
-		model_instance = genai.GenerativeModel(
-			model_name,
-			tools=tool_declarations,
-			tool_config=tool_config,
-			system_instruction=system_instruction,
-		)
-	else:
-		model_instance = genai.GenerativeModel(model_name, system_instruction=system_instruction)
-
-
-	# The Gemini API expects a specific format for conversation history.
-	# We filter out our internal 'tool_context' messages before sending.
-	gemini_history = []
-	for entry in conversation_history:
-		if entry.get("role") == "tool_context":
-			continue # Do not send internal context to the model as chat history
-		# The role must be 'user' or 'model'. Our doctype uses 'gemini'.
-		role = "model" if entry.get("role") == "gemini" else "user"
-		gemini_history.append({"role": role, "parts": [entry.get("text")]})
-
-	chat = model_instance.start_chat(history=gemini_history)
-
-	# 4. Send the prompt and handle the response, including any tool calls
-	# Send the initial prompt and start the response processing.
-	response_stream = chat.send_message(prompt, stream=stream)
-
-	def process_response_stream(current_stream):
-		"""
-		Processes a response stream, handles tool calls, and returns the final text.
-		This function is designed to be called recursively for tool calls.
-		"""
-		final_response_text = ""
-		tool_calls_log = []
-
-		for chunk in current_stream:
-			try:
-				# Robustly check for a function call in any part of the chunk
-				function_call = None
-				if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
-					for part in chunk.candidates[0].content.parts:
-						if part.function_call:
-							function_call = part.function_call
-							break
-
-				if function_call:
-					tool_name = function_call.name
-					tool_args = {key: value for key, value in function_call.args.items()}
-
-					# If the model wants to search ERPNext but didn't specify a DocType,
-					# we'll try to infer one from the user's prompt to improve accuracy.
-					if tool_name == "search_erpnext_documents":
-						if not tool_args.get("doctype"):
-							detected_doctype = _get_doctype_from_prompt(prompt)
-							if detected_doctype:
-								tool_args["doctype"] = detected_doctype
-								frappe.log(
-									f"Inferred DocType '{detected_doctype}' for search from prompt.",
-									"Gemini Integration",
-								)
-						# If the model is asking for a broad summary without a specific query,
-						# use the original prompt as the query for semantic search.
-						if not tool_args.get("query"):
-							tool_args["query"] = prompt
-							frappe.log(
-								"No query found for search. Using the original prompt as the query.",
-								"Gemini Integration",
-							)
-
-					# Log the raw function call for debugging
-					frappe.log_error(
-						message=f"Gemini requested tool: {tool_name} with args: {tool_args}",
-						title="Gemini Tool Call",
-					)
-
-					# Execute the tool function
-					tool_function = mcp._tool_registry[tool_name]["fn"]
-					tool_result_obj = tool_function(**tool_args)
-
-					# --- UNIFIED RESPONSE HANDLING ---
-
-					# Case 1: Safe Synthesis for confident, structured data
-					is_confident_search = (
-						tool_name == "search_erpnext_documents"
-						and isinstance(tool_result_obj, dict)
-						and tool_result_obj.get("type") == "confident_match"
-					)
-					is_successful_fetch = False
-					fetched_data = None
-					if tool_name == "fetch_erpnext_data":
-						data_to_check = None
-						if isinstance(tool_result_obj, str):
-							try:
-								data_to_check = json.loads(tool_result_obj)
-							except (json.JSONDecodeError, TypeError):
-								pass  # Not a valid JSON string
-						elif isinstance(tool_result_obj, (list, dict)):
-							data_to_check = tool_result_obj
-
-						if data_to_check and "error" not in data_to_check:
-							is_successful_fetch = True
-							fetched_data = data_to_check
-
-					if is_confident_search or is_successful_fetch:
-						factual_data = tool_result_obj.get("doc") if is_confident_search else fetched_data
-						if is_confident_search:
-							conversation_history.append(
-								{"role": "tool_context", "content": json.dumps(tool_result_obj)}
-							)
-
-						safe_synthesis_instruction = """
-You are an AI assistant for ERPNext. Your primary function is to answer the user's question based *strictly and exclusively* on the factual data provided below. Do not infer, add, or fabricate any information that is not explicitly present in the data. If the provided data does not contain the answer to the user's question, you must state that the information is not available in the provided context. In your response, make sure to mention that the information comes from ERPNext."""
-						final_prompt_content = f'''**User's Original Question:**
-"{prompt}"
-
-**Factual Data from ERPNext:**
-```json
-{json.dumps(factual_data, indent=2, default=str)}
-```
-
-**Your Answer:**'''
-						synthesis_model = genai.GenerativeModel(model_name, system_instruction=safe_synthesis_instruction)
-						synthesis_response = synthesis_model.generate_content(final_prompt_content)
-						try:
-							final_response_text = synthesis_response.text
-						except ValueError:
-							final_response_text = "The model returned a response that could not be displayed."
-
-						# If streaming, send the synthesized response back to the client.
-						if stream:
-							frappe.publish_realtime(
-								"gemini_chat_update", {"message": final_response_text}, user=user
-							)
-
-						tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": factual_data, "action": "Safe Synthesis Triggered"})
-						current_stream.resolve()
-						break
-
-					# Case 2: Direct passthrough for pre-formatted strings
-					elif (isinstance(tool_result_obj, dict) and tool_result_obj.get("type") in ["disambiguation", "no_match", "error"]):
-						final_response_text = tool_result_obj.get("string_representation", "An unexpected error occurred.")
-						tool_calls_log.append({"tool": tool_name, "arguments": tool_args, "result": final_response_text, "action": "Direct Response Passthrough"})
-						current_stream.resolve()
-						break
-
-					# --- END UNIFIED RESPONSE HANDLING ---
-
-					# Determine the representation of the result to send back to the model for all other cases
-					if isinstance(tool_result_obj, dict):
-						tool_result_for_model = tool_result_obj.get(
-							"string_representation", str(tool_result_obj)
-						)
-					else:
-						tool_result_for_model = str(tool_result_obj)
-
-					# Log the result being sent back to the model
-					tool_calls_log.append(
-						{"tool": tool_name, "arguments": tool_args, "result": tool_result_for_model}
-					)
-					frappe.log_error(
-						message=f"Sending tool response for {tool_name} to Gemini: {tool_result_for_model}",
-						title="Gemini Tool Response",
-					)
-
-					# The stream must be fully consumed before sending the next message.
-					# Calling resolve() finishes the iteration.
-					current_stream.resolve()
-
-					# Send the tool's result back to the model and get the new response stream
-					function_response_payload = [
-						{
-							"function_response": {
-								"name": tool_name,
-								"response": {"contents": tool_result_for_model},
-							}
-						}
-					]
-					new_response_stream = chat.send_message(function_response_payload, stream=stream)
-
-					# Process the new stream to get the final answer from the model
-					# This recursive call handles subsequent tool calls or the final text response
-					final_text, nested_logs = process_response_stream(new_response_stream)
-					final_response_text += final_text
-					tool_calls_log.extend(nested_logs)
-					# Once we've handled a tool call and its subsequent response, we break the loop
-					# as the rest of the original stream is now irrelevant.
-					break
-
-				else:
-					# This is a regular text chunk, not a tool call
-					text_chunk = ""
-					try:
-						text_chunk = chunk.text
-					except ValueError:
-						# This can happen if a chunk is empty or has non-text parts after a tool call.
-						# We can safely ignore these.
-						continue
-
-					final_response_text += text_chunk
-					if stream:
-						frappe.publish_realtime(
-							"gemini_chat_update", {"message": text_chunk}, user=user
-						)
-
-			except Exception as e:
-				frappe.log_error(
-					message=f"Error processing Gemini stream chunk: {e!s}\n{frappe.get_traceback()}",
-					title="Gemini Stream Error",
-				)
-				if stream:
-					# Notify the user of the error via the websocket
-					frappe.publish_realtime(
-						"gemini_chat_update",
-						{"error": "An error occurred while processing the response."},
-						user=user,
-					)
-				# Stop processing the stream on error
-				break
-
-		return final_response_text, tool_calls_log
-
-	# --- Main Execution Logic ---
-
-	# If streaming, the process runs entirely in the background, communicating via WebSockets.
-	if stream:
-		# Ensure a conversation exists before starting the stream
-		if not conversation_id:
-			conversation_id = save_conversation(None, prompt, [], user=user)
-			frappe.publish_realtime(
-				"gemini_chat_update",
-				{"conversation_id": conversation_id},
-				user=user,
-			)
-
-		# Process the stream from the initial prompt
-		final_response_text, tool_calls_log = process_response_stream(response_stream)
-
-		# Linkify any ERPNext document IDs found in the final response
-		final_response_text = _linkify_erpnext_docs(final_response_text)
-
-		# Log the full tool call trace if any tools were used
-		if tool_calls_log:
-			log_entry = {
-				"source": "Gemini Tool Call Trace",
-				"tool_calls": tool_calls_log,
-				"final_response": final_response_text,
-			}
-			frappe.log_error(
-				message=json.dumps(log_entry, indent=2, default=str),
-				title="Gemini Tool Call Trace",
-			)
-
-		# Update and save the complete conversation history
+		# Save the conversation history
 		conversation_history.append({"role": "user", "text": prompt})
 		conversation_history.append({"role": "gemini", "text": final_response_text})
-		save_conversation(conversation_id, prompt, conversation_history)
+		save_conversation(conversation_id, prompt, conversation_history, user=user)
 
-		# Signal the end of the stream to the client
+		# If streaming, publish the final answer and signal the end.
+		if stream:
+			frappe.publish_realtime("gemini_chat_update", {"message": final_response_text}, user=user)
+			frappe.publish_realtime("gemini_chat_update", {"end_of_stream": True}, user=user)
+			return
+
+		# For non-streaming, return the final payload.
+		return {
+			"response": final_response_text,
+			"thoughts": "The model provided a direct answer without using tools.",
+			"conversation_id": conversation_id,
+		}
+
+	# --- 3. Execution Phase ---
+	compiled_context = []
+	for step in execution_plan:
+		tool_name = step.get("tool_name")
+		tool_args = step.get("args", {})
+
+		if not tool_name or not isinstance(tool_args, dict):
+			# Skip malformed steps in the plan
+			continue
+
+		# Check for Google authentication if a Google tool is planned
+		if tool_name in ["search_drive", "search_gmail", "search_calendar", "search_google_contacts", "send_email"]:
+			if not is_google_integrated():
+				compiled_context.append({
+					"tool_name": tool_name,
+					"status": "error",
+					"result": "User has not connected their Google account.",
+				})
+				continue # Skip to the next tool in the plan
+
+		try:
+			# Execute the tool function
+			tool_function = mcp._tool_registry[tool_name]["fn"]
+			tool_result = tool_function(**tool_args)
+			compiled_context.append({
+				"tool_name": tool_name,
+				"status": "success",
+				"result": tool_result,
+			})
+		except Exception as e:
+			frappe.log_error(
+				message=f"Error executing tool '{tool_name}' from plan: {e!s}\n{frappe.get_traceback()}",
+				title="Gemini Execution Phase Error",
+			)
+			compiled_context.append({
+				"tool_name": tool_name,
+				"status": "error",
+				"result": f"An error occurred while running the tool: {e!s}",
+			})
+
+	# --- 4. Synthesis Phase ---
+	synthesis_instruction = """
+You are a helpful AI assistant integrated into ERPNext. Your goal is to provide a single, comprehensive, and user-friendly answer to the user's original question.
+You will be given the user's prompt and a JSON object containing the results of a series of tool calls that were executed to gather information.
+Synthesize the information from the tool results to answer the user's question.
+If any tools returned an error, acknowledge the failure and inform the user what information you were unable to retrieve.
+Base your answer STRICTLY on the provided tool results. Do not invent or hallucinate information.
+Format your response in clear, readable Markdown.
+"""
+
+	# The Gemini API cannot handle the `decimal` type from MariaDB, so we need a custom JSON encoder.
+	class CustomJSONEncoder(json.JSONEncoder):
+		def default(self, obj):
+			if isinstance(obj, frappe.model.document.Document):
+				return obj.as_dict()
+			if hasattr(obj, 'isoformat'): # Handles dates, datetimes
+				return obj.isoformat()
+			from decimal import Decimal
+			if isinstance(obj, Decimal):
+				return float(obj)
+			return super().default(self, obj)
+
+	final_prompt_content = f"""**User's Original Question:**
+"{prompt}"
+
+**Compiled Context from Tool Execution:**
+```json
+{json.dumps(compiled_context, indent=2, cls=CustomJSONEncoder)}
+```
+
+**Your Answer:**
+"""
+
+	synthesis_model = genai.GenerativeModel(model_name, system_instruction=synthesis_instruction)
+	final_response = synthesis_model.generate_content(final_prompt_content, stream=stream)
+
+	# --- 5. Stream or Return Final Response ---
+	if stream:
+		final_response_text = ""
+		for chunk in final_response:
+			text_chunk = chunk.text
+			final_response_text += text_chunk
+			frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
+
+		final_response_text = _linkify_erpnext_docs(final_response_text)
+		conversation_history.append({"role": "user", "text": prompt})
+		conversation_history.append({"role": "gemini", "text": final_response_text})
+		save_conversation(conversation_id, prompt, conversation_history, user=user)
 		frappe.publish_realtime("gemini_chat_update", {"end_of_stream": True}, user=user)
-		# Since this is a background job, we don't need to return anything.
 		return
 
-	# Handle the non-streaming (blocking) case for other potential integrations
-	final_response_text, tool_calls_log = process_response_stream(response_stream)
-	final_response_text = _linkify_erpnext_docs(final_response_text)
-
-	# If tools were called, log the complete trace for debugging.
-	if tool_calls_log:
-		log_entry = {
-			"source": "Gemini Tool Call Trace",
-			"tool_calls": tool_calls_log,
-			"final_response": final_response_text,
-		}
-		frappe.log_error(
-			message=json.dumps(log_entry, indent=2, default=str),
-			title="Gemini Tool Call Trace",
-		)
-
-	# The concept of "thoughts" from the old MCP implementation doesn't directly map.
-	# We will create a placeholder for now.
-	thoughts = "The model generated a response, potentially after using tools."
-
-	# 6. Save the conversation by appending the latest user prompt and model response
-	# to the history before saving.
+	# Handle non-streaming case
+	final_response_text = _linkify_erpnext_docs(final_response.text)
 	conversation_history.append({"role": "user", "text": prompt})
+	conversation_history.append({"role": "gemini", "text": final_response_text})
+	save_conversation(conversation_id, prompt, conversation_history, user=user)
 
-	gemini_response_message = {"role": "gemini", "text": final_response_text}
-	if image_url:
-		gemini_response_message["image_url"] = image_url
-	conversation_history.append(gemini_response_message)
-
-	conversation_id = save_conversation(conversation_id, prompt, conversation_history)
-
-	final_return_payload = {
+	return {
 		"response": final_response_text,
-		"thoughts": thoughts,
+		"thoughts": "The model generated a synthesized response based on tool results.",
 		"conversation_id": conversation_id,
 	}
-	if image_url:
-		final_return_payload["image_url"] = image_url
-
-	return final_return_payload
 
 
 def save_conversation(conversation_id, title, conversation, user=None):
