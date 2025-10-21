@@ -503,16 +503,39 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	planner_chat = planner_model.start_chat()
 	planner_response = planner_chat.send_message(prompt)
 
-	# --- 2. Direct Response Fallback ---
-	# Check if the planner returned a direct text response instead of a tool-use plan.
+	# --- 2. Parse Planner Response ---
+	execution_plan = None
+	direct_response = False
+
+	# Check for a direct function call first. This is the most likely alternative to a JSON plan.
 	try:
-		# A valid plan is a parsable JSON string that is a non-empty list.
-		execution_plan = json.loads(planner_response.text)
-		if not isinstance(execution_plan, list) or not execution_plan:
-			# If it's an empty list `[]` or not a list, treat it as a direct response.
-			raise ValueError("Not a valid execution plan.")
-	except (json.JSONDecodeError, ValueError):
-		# The response is not a valid JSON plan, so it's the final answer.
+		tool_call = planner_response.candidates[0].content.parts[0].function_call
+		# Adapt the single tool call to the list format expected by the execution phase.
+		execution_plan = [
+			{
+				"tool_name": tool_call.name,
+				"args": {k: v for k, v in tool_call.args.items()},
+			}
+		]
+		frappe.log(
+			f"Planner returned a direct function call: {tool_call.name}", "Gemini Integration"
+		)
+	except (ValueError, IndexError, AttributeError):
+		# If there's no function call, proceed to check for a JSON plan or a direct text response.
+		try:
+			# A valid plan is a parsable JSON string that is a non-empty list.
+			execution_plan = json.loads(planner_response.text)
+			if not isinstance(execution_plan, list) or not execution_plan:
+				# If it's an empty list `[]` or not a list, treat it as a direct response.
+				direct_response = True
+				execution_plan = None
+		except (json.JSONDecodeError, ValueError):
+			# The response is not a valid JSON plan, so it's the final answer.
+			direct_response = True
+			execution_plan = None
+
+	# If it was determined to be a direct response, handle it and exit.
+	if direct_response:
 		final_response_text = _linkify_erpnext_docs(planner_response.text)
 
 		# Save the conversation history

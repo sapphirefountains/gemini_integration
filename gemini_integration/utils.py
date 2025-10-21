@@ -322,7 +322,12 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 			response = model_instance.generate_content([prompt] + uploaded_files)
 		else:
 			response = model_instance.generate_content(prompt)
-		return response.text
+		try:
+			return response.text
+		except ValueError:
+			# This can happen if the model returns a function call or other non-text part.
+			# For a simple text generation, we can just return an empty string.
+			return ""
 	except Exception as e:
 		frappe.log_error(f"Gemini API Error: {e!s}", "Gemini Integration")
 		frappe.throw(
