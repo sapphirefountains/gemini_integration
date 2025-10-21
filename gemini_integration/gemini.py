@@ -517,9 +517,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 				"args": {k: v for k, v in tool_call.args.items()},
 			}
 		]
-		frappe.log(
-			f"Planner returned a direct function call: {tool_call.name}", "Gemini Integration"
-		)
+		frappe.log(f"Planner returned a direct function call: {tool_call.name}")
 	except (ValueError, IndexError, AttributeError):
 		# If there's no function call, proceed to check for a JSON plan or a direct text response.
 		try:
@@ -951,7 +949,7 @@ def backfill_embeddings():
 		doctypes_to_embed = [link.doctype_name for link in settings.get("embedding_doctypes", [])]
 
 		if not doctypes_to_embed:
-			frappe.log("No DocTypes configured for embedding in Gemini Settings.", "Gemini Integration")
+			frappe.log("No DocTypes configured for embedding in Gemini Settings.")
 			return
 
 		for doctype in doctypes_to_embed:
@@ -978,7 +976,7 @@ def backfill_embeddings():
 						doctype=doctype,
 						docname=docname,
 					)
-					frappe.log(f"Successfully enqueued embedding generation for {doctype} - {docname}", "Gemini Embedding Backfill")
+					frappe.log(f"Successfully enqueued embedding generation for {doctype} - {docname}")
 
 				except Exception as e:
 					frappe.log_error(
