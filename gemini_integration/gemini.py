@@ -568,7 +568,7 @@ You are an AI assistant integrated into ERPNext. When you use tools to access ER
 4. Clearly separate information that comes from ERPNext tools from your general knowledge. For example, say 'I found the following in ERPNext...' when presenting tool results.
 """
 	if doctype and docname:
-		system_instruction += f"\n\n--- CURRENT PAGE CONTEXT ---\nThe user is currently viewing the '{doctype}' document titled '{docname}'. Prioritize this information to answer their questions."
+		system_instruction += f"\n\n--- CURRENT PAGE CONTEXT ---\nThe user is currently viewing the document '{docname}' of type '{doctype}'. You should use the available @ERPNext tools to answer questions about it. Prioritize this information to answer their questions."
 		if document_context_for_model:
 			system_instruction += "\n\nThe full content of this document has been pre-fetched for you. Use it to answer the user's prompt.\n"
 			system_instruction += f"DOCUMENT CONTENT:\n{document_context_for_model}"
