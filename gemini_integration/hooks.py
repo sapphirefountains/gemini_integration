@@ -161,7 +161,7 @@ doctypes_to_embed = get_doctypes_for_embedding()
 for doctype in doctypes_to_embed:
     doc_events[doctype] = {
         "on_update": "gemini_integration.gemini.update_embedding",
-        "on_trash": "gemini_integration.gemini.delete_embedding"
+        "on_trash": "gemini_integration.gemini.delete_embeddings_for_doc"
     }
 
 # Scheduled Tasks
