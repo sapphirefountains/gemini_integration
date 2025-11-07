@@ -319,7 +319,7 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 	try:
 		model_instance = genai.GenerativeModel(model_name)
 		if uploaded_files:
-			response = model_instance.generate_content([prompt] + uploaded_files)
+			response = model_instance.generate_content([prompt, *uploaded_files])
 		else:
 			response = model_instance.generate_content(prompt)
 		try:

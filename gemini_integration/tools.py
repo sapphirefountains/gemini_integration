@@ -434,7 +434,7 @@ get_doc_context.service = "erpnext"
 @mcp.tool()
 @log_activity
 @handle_errors
-def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) -> dict:
+def search_erpnext_documents(query: str, doctype: str | None = None, limit: int = 5) -> dict:
 	"""Searches for documents in ERPNext with a query, returning a dictionary of results.
 	This tool implements a "waterfall" logic:
 	1. Exact ID Match: Fast check for specific document IDs (e.g., 'CRM-OPP-2025-00631').
@@ -1065,7 +1065,7 @@ search_google_contacts.service = "google"
 @mcp.tool()
 @log_activity
 @handle_errors
-def create_drive_file(file_name: str, file_content: str, folder_id: str = None) -> str:
+def create_drive_file(file_name: str, file_content: str, folder_id: str | None = None) -> str:
 	"""Creates a new file in Google Drive.
 
 	Args:
@@ -1120,7 +1120,7 @@ def update_drive_file(file_id: str, file_content: str) -> str:
 		fh = BytesIO(file_content.encode("utf-8"))
 		media = MediaIoBaseUpload(fh, mimetype="text/plain")
 
-		file = service.files().update(fileId=file_id, media_body=media).execute()
+		service.files().update(fileId=file_id, media_body=media).execute()
 		return "File updated successfully."
 	except HttpError as error:
 		return f"An error occurred with Google Drive: {error}"
@@ -1161,7 +1161,9 @@ delete_drive_file.service = "drive"
 @mcp.tool()
 @log_activity
 @handle_errors
-def modify_gmail_label(message_id: str, add_labels: list[str] = None, remove_labels: list[str] = None) -> str:
+def modify_gmail_label(
+	message_id: str, add_labels: list[str] | None = None, remove_labels: list[str] | None = None
+) -> str:
 	"""Adds or removes labels from a Gmail message.
 
 	Args:
@@ -1228,7 +1230,7 @@ delete_gmail_message.service = "gmail"
 @log_activity
 @handle_errors
 def create_google_calendar_event(
-	summary: str, start_time: str, end_time: str, attendees: list[str] = None
+	summary: str, start_time: str, end_time: str, attendees: list[str] | None = None
 ) -> str:
 	"""Creates a new event in Google Calendar.
 
@@ -1274,10 +1276,10 @@ create_google_calendar_event.service = "calendar"
 @handle_errors
 def update_google_calendar_event(
 	event_id: str,
-	summary: str = None,
-	start_time: str = None,
-	end_time: str = None,
-	attendees: list[str] = None,
+	summary: str | None = None,
+	start_time: str | None = None,
+	end_time: str | None = None,
+	attendees: list[str] | None = None,
 ) -> str:
 	"""Updates an existing event in Google Calendar.
 
@@ -1397,11 +1399,11 @@ create_comment.service = "erpnext"
 @handle_errors
 def create_task(
 	subject: str,
-	project: str = None,
-	description: str = None,
-	priority: str = None,
-	assigned_to: str = None,
-	exp_end_date: str = None,
+	project: str | None = None,
+	description: str | None = None,
+	priority: str | None = None,
+	assigned_to: str | None = None,
+	exp_end_date: str | None = None,
 	confirmed: bool = False,
 ) -> str:
 	"""
