@@ -12,4 +12,4 @@ def handle_mcp():
 	request is made to the MCP. It imports the tools module to ensure that
 	all the tools are registered with the MCP.
 	"""
-	import gemini_integration.tools  # noqa: F401
+	import gemini_integration.tools

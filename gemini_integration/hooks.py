@@ -27,10 +27,10 @@ app_license = "mit"
 # include js, css files in header of desk.html
 # app_include_css = "/assets/gemini_integration/css/gemini_integration.css"
 app_include_js = [
-    "https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js",
-    "/assets/gemini_integration/js/gemini_chat_ui.js",
-    "/assets/gemini_integration/js/global_chat.js",
+	"https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js",
+	"https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js",
+	"/assets/gemini_integration/js/gemini_chat_ui.js",
+	"/assets/gemini_integration/js/global_chat.js",
 ]
 
 # include js, css files in header of web template
@@ -143,26 +143,28 @@ app_include_js = [
 # Hook on document methods and events
 import frappe
 
+
 def get_doctypes_for_embedding():
-    """
-    Fetches the list of DocTypes configured for embedding from Gemini Settings.
-    """
-    try:
-        if frappe.db.exists("DocType", "Gemini Settings"):
-            settings = frappe.get_single("Gemini Settings")
-            return [link.doctype_name for link in settings.get("embedding_doctypes", [])]
-    except Exception:
-        # This can happen during installation or if the DocType is not yet synced
-        pass
-    return []
+	"""
+	Fetches the list of DocTypes configured for embedding from Gemini Settings.
+	"""
+	try:
+		if frappe.db.exists("DocType", "Gemini Settings"):
+			settings = frappe.get_single("Gemini Settings")
+			return [link.doctype_name for link in settings.get("embedding_doctypes", [])]
+	except Exception:
+		# This can happen during installation or if the DocType is not yet synced
+		pass
+	return []
+
 
 doc_events = {}
 doctypes_to_embed = get_doctypes_for_embedding()
 for doctype in doctypes_to_embed:
-    doc_events[doctype] = {
-        "on_update": "gemini_integration.gemini.update_embedding",
-        "on_trash": "gemini_integration.gemini.delete_embeddings_for_doc"
-    }
+	doc_events[doctype] = {
+		"on_update": "gemini_integration.gemini.update_embedding",
+		"on_trash": "gemini_integration.gemini.delete_embeddings_for_doc",
+	}
 
 # Scheduled Tasks
 # ---------------

@@ -10,7 +10,9 @@ frappe.ui.form.on("Gemini Settings", {
 				callback: function (r) {
 					if (r.message && r.message.status === "success") {
 						frappe.show_alert({
-							message: __("Embedding generation has been started in the background."),
+							message: __(
+								"Embedding generation has been started in the background."
+							),
 							indicator: "green",
 						});
 					}

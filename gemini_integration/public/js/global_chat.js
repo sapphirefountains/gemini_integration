@@ -74,7 +74,7 @@ function setupGeminiChatWidget() {
 }
 
 if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", setupGeminiChatWidget);
+	document.addEventListener("DOMContentLoaded", setupGeminiChatWidget);
 } else {
-    setupGeminiChatWidget();
+	setupGeminiChatWidget();
 }
