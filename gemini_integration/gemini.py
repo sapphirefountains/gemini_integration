@@ -17,6 +17,7 @@ from gemini_integration.tools import (
 	create_task,
 	fetch_erpnext_data,
 	get_doc_context,
+	get_drive_file_context,
 	handle_errors,
 	log_activity,
 	search_calendar,
@@ -271,92 +272,6 @@ def _linkify_erpnext_docs(text):
 # --- MAIN CHAT FUNCTIONALITY ---
 
 
-@log_activity
-@handle_errors
-def generate_chat_response(
-	prompt,
-	model=None,
-	conversation_id=None,
-	use_google_search=False,
-	stream=False,
-	user=None,
-	doctype=None,
-	docname=None,
-):
-	"""Handles chat interactions by routing them to the correct MCP tools.
-
-	Args:
-	    prompt (str): The user's chat prompt.
-	    model (str, optional): The model to use for the chat. Defaults to None.
-	    conversation_id (str, optional): The ID of the existing conversation. Defaults to None.
-	    use_google_search (bool, optional): Whether to enable Google Search for this query.
-	        Defaults to False.
-	    stream (bool, optional): Whether to stream the response. Defaults to False.
-	    user (str, optional): The user initiating the request. This is crucial for background jobs.
-	        Defaults to None.
-	    doctype (str, optional): The DocType of the document the user is viewing. Defaults to None.
-	    docname (str, optional): The name of the document the user is viewing. Defaults to None.
-
-	Returns:
-	    dict or generator: A dictionary containing the response, thoughts, and conversation ID,
-	        or a generator that yields the response chunks.
-	"""
-	# Configure the Gemini client before proceeding
-	settings = frappe.get_single("Gemini Settings")
-	api_key = settings.get_password("api_key")
-	if not api_key:
-		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
-
-	try:
-		genai.configure(api_key=api_key)
-	except Exception as e:
-		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
-		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
-
-	# --- Image Generation Logic ---
-	image_url = None
-	image_keywords = [
-		"generate a picture of",
-		"create a picture of",
-		"generate an image of",
-		"create an image of",
-		"show me a picture of",
-		"draw a picture of",
-		"generate a photo of",
-		"create a photo of",
-		"show me an image of",
-	]
-	is_image_request = any(keyword in prompt.lower() for keyword in image_keywords)
-
-	if is_image_request:
-		image_url = generate_image(prompt)
-	# --- End Image Generation Logic ---
-
-	from gemini_integration.mcp import mcp
-
-	# Load the conversation history from the database if a conversation ID is provided.
-	# The Gemini API expects a specific format, so we will transform it later.
-	conversation_history = []
-	if conversation_id:
-		try:
-			conversation_doc = frappe.get_doc("Gemini Conversation", conversation_id)
-			if conversation_doc.conversation:
-				# The conversation is stored as a JSON string.
-				conversation_history = json.loads(conversation_doc.conversation)
-		except frappe.DoesNotExistError:
-			# If the conversation ID is invalid, we start a new conversation.
-			conversation_id = None
-
-	# 1. Determine which toolsets to use based on @-mentions and search settings.
-	mentioned_services = re.findall(r"@(\w+)", prompt.lower())
-	tool_declarations = []
-
-	# If no specific services are mentioned, the model will act as a general chatbot.
-	# If services are mentioned, we gather the appropriate tools.
-	if mentioned_services:
-		pass
-
-
 # --- SERVICE TO TOOL MAPPING ---
 
 # This dictionary maps the user-facing @-mention service to a list of tool function names.
@@ -461,7 +376,7 @@ def generate_chat_response(
 	# --- 1. Planning Phase ---
 	# Provide the model with a "menu" of all available tools.
 	tool_declarations = []
-	for tool_name, tool_data in mcp._tool_registry.items():
+	for _tool_name, tool_data in mcp._tool_registry.items():
 		# Sanitize the tool declaration for the Google API
 		input_schema = tool_data.get("input_schema")
 		if input_schema and "properties" in input_schema:
@@ -866,7 +781,7 @@ def generate_embedding_in_background(doctype, docname):
 		source_doc = frappe.get_doc(doctype, docname)
 		content_to_embed = f"Document: {docname}\n"
 		for field, value in source_doc.as_dict().items():
-			if value and not isinstance(value, (list, dict, type(None))):
+			if value and not isinstance(value, list | dict | type(None)):
 				content_to_embed += f"{frappe.unscrub(field)}: {value}\n"
 
 		# 2. Split the content into chunks
