@@ -140,39 +140,40 @@ app_license = "mit"
 doc_events = {
 	"Project": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Customer": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Supplier": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Item": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Sales Order": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Purchase Order": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Lead": {
 		"on_update": "gemini_integration.gemini.generate_embedding_for_doc",
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
 	},
 	"Opportunity": {
 		"on_update": [
 			"gemini_integration.gemini.generate_embedding_for_doc",
-			"gemini_integration.gemini.create_deal_brief_for_opportunity"
+			"gemini_integration.gemini.create_deal_brief_for_opportunity",
 		],
-		"on_trash": "gemini_integration.utils.delete_embedding_for_doc"
-	}
+		"on_trash": "gemini_integration.utils.delete_embedding_for_doc",
+	},
+	"File": {"after_insert": "gemini_integration.utils.handle_file_upload"},
 }
 
 # Scheduled Tasks

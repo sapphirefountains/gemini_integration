@@ -13,6 +13,8 @@ from frappe.utils import get_site_url, get_url_to_form
 from googleapiclient.errors import HttpError
 
 from gemini_integration.tools import (
+	create_comment,
+	create_task,
 	fetch_erpnext_data,
 	get_doc_context,
 	handle_errors,
@@ -22,8 +24,6 @@ from gemini_integration.tools import (
 	search_erpnext_documents,
 	search_gmail,
 	search_google_contacts,
-	create_comment,
-	create_task,
 	update_document_status,
 )
 from gemini_integration.utils import configure_gemini, generate_embedding, generate_text
@@ -70,11 +70,7 @@ def generate_image(prompt):
 
 	except Exception as e:
 		frappe.log_error(f"Gemini Image Generation API Error: {e!s}", "Gemini Integration")
-		frappe.throw(
-			"An error occurred while generating the image. Please check the Error Log for details."
-		)
-
-
+		frappe.throw("An error occurred while generating the image. Please check the Error Log for details.")
 
 
 # --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
@@ -320,9 +316,15 @@ def generate_chat_response(
 	# --- Image Generation Logic ---
 	image_url = None
 	image_keywords = [
-		"generate a picture of", "create a picture of", "generate an image of",
-		"create an image of", "show me a picture of", "draw a picture of",
-		"generate a photo of", "create a photo of", "show me an image of"
+		"generate a picture of",
+		"create a picture of",
+		"generate an image of",
+		"create an image of",
+		"show me a picture of",
+		"draw a picture of",
+		"generate a photo of",
+		"create a photo of",
+		"show me an image of",
 	]
 	is_image_request = any(keyword in prompt.lower() for keyword in image_keywords)
 
@@ -353,43 +355,45 @@ def generate_chat_response(
 	# If services are mentioned, we gather the appropriate tools.
 	if mentioned_services:
 		pass
+
+
 # --- SERVICE TO TOOL MAPPING ---
 
 # This dictionary maps the user-facing @-mention service to a list of tool function names.
 # This makes it easy to manage which tools are exposed for each service and allows for reuse.
 SERVICE_TO_TOOL_MAP = {
-    "erpnext": {
-        "label": "@ERPNext",
-        "tools": [
-            "search_erpnext_documents",
-            "fetch_erpnext_data",
-            "create_comment",
-            "create_task",
-            "update_document_status",
-        ],
-    },
-    "google": {
-        "label": "@Google",
-        "tools": [
-            "search_drive",
-            "search_gmail",
-            "search_calendar",
-            "search_google_contacts",
-        ],
-    },
-    "drive": {"label": "@Drive", "tools": ["search_drive"]},
-    "gmail": {
-        "label": "@Gmail",
-        "tools": [
-            "send_email",
-            "search_gmail",
-            "get_gmail_message_context",
-            "modify_gmail_label",
-            "delete_gmail_message",
-        ],
-    },
-    "calendar": {"label": "@Calendar", "tools": ["search_calendar"]},
-    "contacts": {"label": "@Contacts", "tools": ["search_google_contacts"]},
+	"erpnext": {
+		"label": "@ERPNext",
+		"tools": [
+			"search_erpnext_documents",
+			"fetch_erpnext_data",
+			"create_comment",
+			"create_task",
+			"update_document_status",
+		],
+	},
+	"google": {
+		"label": "@Google",
+		"tools": [
+			"search_drive",
+			"search_gmail",
+			"search_calendar",
+			"search_google_contacts",
+		],
+	},
+	"drive": {"label": "@Drive", "tools": ["search_drive"]},
+	"gmail": {
+		"label": "@Gmail",
+		"tools": [
+			"send_email",
+			"search_gmail",
+			"get_gmail_message_context",
+			"modify_gmail_label",
+			"delete_gmail_message",
+		],
+	},
+	"calendar": {"label": "@Calendar", "tools": ["search_calendar"]},
+	"contacts": {"label": "@Contacts", "tools": ["search_google_contacts"]},
 }
 
 
@@ -496,7 +500,9 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	planner_model = genai.GenerativeModel(
 		model_name,
 		tools=tool_declarations,
-		tool_config={"function_calling_config": {"mode": "ANY"}}, # Use ANY to allow for direct response or tool plan
+		tool_config={
+			"function_calling_config": {"mode": "ANY"}
+		},  # Use ANY to allow for direct response or tool plan
 		system_instruction=planning_instruction,
 	)
 
@@ -565,34 +571,46 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 			continue
 
 		# Check for Google authentication if a Google tool is planned
-		if tool_name in ["search_drive", "search_gmail", "search_calendar", "search_google_contacts", "send_email"]:
+		if tool_name in [
+			"search_drive",
+			"search_gmail",
+			"search_calendar",
+			"search_google_contacts",
+			"send_email",
+		]:
 			if not is_google_integrated():
-				compiled_context.append({
-					"tool_name": tool_name,
-					"status": "error",
-					"result": "User has not connected their Google account.",
-				})
-				continue # Skip to the next tool in the plan
+				compiled_context.append(
+					{
+						"tool_name": tool_name,
+						"status": "error",
+						"result": "User has not connected their Google account.",
+					}
+				)
+				continue  # Skip to the next tool in the plan
 
 		try:
 			# Execute the tool function
 			tool_function = mcp._tool_registry[tool_name]["fn"]
 			tool_result = tool_function(**tool_args)
-			compiled_context.append({
-				"tool_name": tool_name,
-				"status": "success",
-				"result": tool_result,
-			})
+			compiled_context.append(
+				{
+					"tool_name": tool_name,
+					"status": "success",
+					"result": tool_result,
+				}
+			)
 		except Exception as e:
 			frappe.log_error(
 				message=f"Error executing tool '{tool_name}' from plan: {e!s}\n{frappe.get_traceback()}",
 				title="Gemini Execution Phase Error",
 			)
-			compiled_context.append({
-				"tool_name": tool_name,
-				"status": "error",
-				"result": f"An error occurred while running the tool: {e!s}",
-			})
+			compiled_context.append(
+				{
+					"tool_name": tool_name,
+					"status": "error",
+					"result": f"An error occurred while running the tool: {e!s}",
+				}
+			)
 
 	# --- 4. Synthesis Phase ---
 	synthesis_instruction = """
@@ -609,9 +627,10 @@ Format your response in clear, readable Markdown.
 		def default(self, obj):
 			if isinstance(obj, frappe.model.document.Document):
 				return obj.as_dict()
-			if hasattr(obj, 'isoformat'): # Handles dates, datetimes
+			if hasattr(obj, "isoformat"):  # Handles dates, datetimes
 				return obj.isoformat()
 			from decimal import Decimal
+
 			if isinstance(obj, Decimal):
 				return float(obj)
 			return super().default(self, obj)
@@ -779,6 +798,7 @@ def analyze_risks(project_id):
 	except json.JSONDecodeError:
 		return {"error": "Failed to parse a JSON response from the AI. Please try again."}
 
+
 def _get_text_chunks(text, chunk_size=1000, overlap=100):
 	"""Splits text into chunks of a specified size with overlap."""
 	if not text:
@@ -896,32 +916,33 @@ def delete_embedding_in_background(doctype, docname):
 			title="Gemini Embedding Deletion Error",
 		)
 
+
 def create_deal_brief_for_opportunity(doc, method):
-    """
-    When a new high-value Opportunity is created, trigger a hook that creates a "Deal Brief".
-    """
-    if doc.opportunity_amount > 5000:
-        customer_details = fetch_erpnext_data(
-            doctype="Customer",
-            filters={"name": doc.party_name},
-            fields=["name", "customer_name", "email", "phone", "mobile_no"],
-        )
+	"""
+	When a new high-value Opportunity is created, trigger a hook that creates a "Deal Brief".
+	"""
+	if doc.opportunity_amount > 5000:
+		customer_details = fetch_erpnext_data(
+			doctype="Customer",
+			filters={"name": doc.party_name},
+			fields=["name", "customer_name", "email", "phone", "mobile_no"],
+		)
 
-        customer_projects = fetch_erpnext_data(
-            doctype="Project",
-            filters={"customer": doc.party_name},
-            fields=["name", "project_name", "status", "priority", "start_date", "end_date"],
-        )
+		customer_projects = fetch_erpnext_data(
+			doctype="Project",
+			filters={"customer": doc.party_name},
+			fields=["name", "project_name", "status", "priority", "start_date", "end_date"],
+		)
 
-        customer_opportunities = fetch_erpnext_data(
-            doctype="Opportunity",
-            filters={"party_name": doc.party_name},
-            fields=["name", "opportunity_from", "status", "opportunity_amount"],
-        )
+		customer_opportunities = fetch_erpnext_data(
+			doctype="Opportunity",
+			filters={"party_name": doc.party_name},
+			fields=["name", "opportunity_from", "status", "opportunity_amount"],
+		)
 
-        gmail_history = search_gmail(query=doc.party_name)
+		gmail_history = search_gmail(query=doc.party_name)
 
-        prompt = f"""
+		prompt = f"""
         Create a "Deal Brief" summarizing the following opportunity, customer history, and recent interactions.
         Opportunity: {doc.as_dict()}
         Customer Details: {customer_details}
@@ -930,14 +951,15 @@ def create_deal_brief_for_opportunity(doc, method):
         Recent Emails: {gmail_history}
         """
 
-        deal_brief = generate_text(prompt)
+		deal_brief = generate_text(prompt)
 
-        create_comment(
-            reference_doctype="Opportunity",
-            reference_name=doc.name,
-            comment=deal_brief,
-            confirmed=True,
-        )
+		create_comment(
+			reference_doctype="Opportunity",
+			reference_name=doc.name,
+			comment=deal_brief,
+			confirmed=True,
+		)
+
 
 def backfill_embeddings():
 	"""
@@ -954,7 +976,9 @@ def backfill_embeddings():
 
 		for doctype in doctypes_to_embed:
 			if not frappe.db.exists("DocType", doctype):
-				frappe.log_error(f"DocType '{doctype}' configured for embedding does not exist.", "Gemini Integration")
+				frappe.log_error(
+					f"DocType '{doctype}' configured for embedding does not exist.", "Gemini Integration"
+				)
 				continue
 
 			documents = frappe.get_all(doctype, fields=["name"])
@@ -998,6 +1022,8 @@ def backfill_embeddings():
 		)
 		frappe.publish_realtime(
 			"embedding_backfill_failed",
-			{"error": "An error occurred during the embedding backfill. Please check the Error Log for details."},
+			{
+				"error": "An error occurred during the embedding backfill. Please check the Error Log for details."
+			},
 			user=frappe.session.user,
 		)

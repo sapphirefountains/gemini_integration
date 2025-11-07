@@ -233,3 +233,12 @@ def trigger_backfill():
 	"""Whitelist function to trigger the backfill process from the UI."""
 	frappe.enqueue(backfill_embeddings)
 	return {"status": "success", "message": "Embedding backfill process has been started."}
+
+
+def handle_file_upload(doc, method):
+	"""
+	Enqueues a background job to upload a file to the Gemini File Store.
+	"""
+	from gemini_integration.gemini import upload_file_to_store
+
+	frappe.enqueue(upload_file_to_store, file_doc=doc)

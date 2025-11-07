@@ -2,6 +2,7 @@ import frappe
 
 from gemini_integration.gemini import (
 	analyze_risks,
+	bulk_upload_files,
 	generate_chat_response,
 	generate_tasks,
 	generate_text,
@@ -153,3 +154,12 @@ def get_conversation(conversation_id):
 	if doc.user != frappe.session.user:
 		frappe.throw("You are not authorized to view this conversation.")
 	return doc
+
+
+@frappe.whitelist()
+def start_bulk_file_upload():
+	"""
+	Enqueues a background job to scan and upload all files to the Gemini File Store.
+	"""
+	frappe.enqueue(bulk_upload_files, timeout=1800)
+	return {"status": "success", "message": "Bulk file upload process has been started."}

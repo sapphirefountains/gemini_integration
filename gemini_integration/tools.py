@@ -1,27 +1,24 @@
+import ast
 import base64
 import functools
 import json
 import logging
-import traceback
 import re
-import ast
+import traceback
 from datetime import datetime, timedelta
-from io import BytesIO
 from email.mime.text import MIMEText
-from googleapiclient.http import MediaIoBaseUpload
-import base64
-
+from io import BytesIO
 
 import frappe
+import numpy as np
 from frappe.utils import get_url_to_form
 from googleapiclient.discovery import build
-import json
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseUpload
 from thefuzz import fuzz, process
-import numpy as np
 
 from gemini_integration.mcp import mcp
-from gemini_integration.utils import get_user_credentials, handle_errors, log_activity, generate_embedding
+from gemini_integration.utils import generate_embedding, get_user_credentials, handle_errors, log_activity
 
 
 def cosine_similarity(v1, v2):
@@ -57,12 +54,14 @@ def find_similar_documents(query_embedding, doctype=None, limit=5):
 
 		score = cosine_similarity(query_embedding, stored_embedding)
 		if score > 0.75:  # Similarity threshold
-			all_matching_chunks.append({
-				"doctype": emb_info["ref_doctype"],
-				"name": emb_info["ref_docname"],
-				"score": score,
-				"content": emb_info.get("content", ""),
-			})
+			all_matching_chunks.append(
+				{
+					"doctype": emb_info["ref_doctype"],
+					"name": emb_info["ref_docname"],
+					"score": score,
+					"content": emb_info.get("content", ""),
+				}
+			)
 
 	if not all_matching_chunks:
 		return []
@@ -113,8 +112,18 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 
 		# Define field types that are not useful for the AI context
 		excluded_field_types = {
-			"HTML", "Image", "Attach", "Attach Image", "Code", "JSON",
-			"Text Editor", "Password", "Button", "Section Break", "Column Break", "Tab Break"
+			"HTML",
+			"Image",
+			"Attach",
+			"Attach Image",
+			"Code",
+			"JSON",
+			"Text Editor",
+			"Password",
+			"Button",
+			"Section Break",
+			"Column Break",
+			"Tab Break",
 		}
 
 		for df in meta.fields:
@@ -142,8 +151,7 @@ def _get_doctype_fields(doctype_name: str) -> list[str]:
 
 	except Exception:
 		frappe.log_error(
-			f"Error dynamically fetching fields for DocType '{doctype_name}'",
-			frappe.get_traceback()
+			f"Error dynamically fetching fields for DocType '{doctype_name}'", frappe.get_traceback()
 		)
 		# Fallback to a minimal, safe list of fields that does not depend on the meta object
 		return ["name", "modified"]
@@ -173,7 +181,7 @@ def fetch_erpnext_data(doctype: str, filters: dict, fields: list[str]) -> str:
 			if not isinstance(fields, list):
 				fields = [fields]
 		except (ValueError, SyntaxError):
-			return json.dumps({"error": f"Invalid format for 'fields'. Expected a list of strings."})
+			return json.dumps({"error": "Invalid format for 'fields'. Expected a list of strings."})
 
 	# The Gemini API can pass a special MapComposite object instead of a dict.
 	# We need to convert it to a standard dictionary for Frappe.
@@ -181,17 +189,18 @@ def fetch_erpnext_data(doctype: str, filters: dict, fields: list[str]) -> str:
 		try:
 			filters = dict(filters)
 		except (TypeError, ValueError):
-			return json.dumps({"error": f"Invalid format for 'filters'. Expected a dictionary."})
-
+			return json.dumps({"error": "Invalid format for 'filters'. Expected a dictionary."})
 
 	# --- Safeguard 1: DocType Allowlist ---
 	try:
 		settings = frappe.get_single("Gemini Settings")
 		allowed_doctypes = [d.doctype_to_query for d in settings.get("queryable_doctypes", [])]
 		if doctype not in allowed_doctypes:
-			return json.dumps({
-				"error": f"Access to the '{doctype}' DocType is not permitted. Please select from the allowed list."
-			})
+			return json.dumps(
+				{
+					"error": f"Access to the '{doctype}' DocType is not permitted. Please select from the allowed list."
+				}
+			)
 	except Exception:
 		frappe.log_error("Failed to retrieve or parse 'Queryable DocTypes' from Gemini Settings.")
 		return json.dumps({"error": "Could not verify DocType permissions due to a configuration error."})
@@ -206,7 +215,7 @@ def fetch_erpnext_data(doctype: str, filters: dict, fields: list[str]) -> str:
 	try:
 		meta = frappe.get_meta(doctype)
 		valid_fields = {df.fieldname for df in meta.fields}
-		valid_fields.add('name') # 'name' is always valid
+		valid_fields.add("name")  # 'name' is always valid
 
 		for field in fields:
 			if field not in valid_fields:
@@ -215,24 +224,22 @@ def fetch_erpnext_data(doctype: str, filters: dict, fields: list[str]) -> str:
 	except frappe.DoesNotExistError:
 		return json.dumps({"error": f"DocType '{doctype}' does not exist."})
 
-
 	try:
 		# --- Safeguard 4: Hardcoded Result Limit ---
-		data = frappe.get_list(
-			doctype,
-			filters=filters,
-			fields=fields,
-			limit_page_length=25
-		)
+		data = frappe.get_list(doctype, filters=filters, fields=fields, limit_page_length=25)
 		return json.dumps(data)
 
-	except Exception as e:
+	except Exception:
 		frappe.log_error(
 			message=f"Error in fetch_erpnext_data for {doctype}: {frappe.get_traceback()}",
 			title="Gemini Tool Error",
 		)
 		# Provide a more user-friendly error message
-		return json.dumps({"error": f"An error occurred while querying the '{doctype}' DocType. This could be due to invalid filters or fields."})
+		return json.dumps(
+			{
+				"error": f"An error occurred while querying the '{doctype}' DocType. This could be due to invalid filters or fields."
+			}
+		)
 
 
 fetch_erpnext_data.service = "erpnext"
@@ -260,7 +267,7 @@ def send_email(to: str, subject: str, body: str, confirmed: bool = False) -> str
 	    str: The draft of the email for user confirmation or a success/failure message.
 	"""
 	if not confirmed:
-		draft = f"**Email Draft for your approval:**\n\n"
+		draft = "**Email Draft for your approval:**\n\n"
 		draft += f"**To:** {to}\n"
 		draft += f"**Subject:** {subject}\n"
 		draft += f"**Body:**\n{body}\n\n"
@@ -274,11 +281,11 @@ def send_email(to: str, subject: str, body: str, confirmed: bool = False) -> str
 
 		service = build("gmail", "v1", credentials=credentials)
 		message = MIMEText(body)
-		message['to'] = to
-		message['subject'] = subject
+		message["to"] = to
+		message["subject"] = subject
 
 		raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-		create_message = {'raw': raw_message}
+		create_message = {"raw": raw_message}
 
 		send_message = service.users().messages().send(userId="me", body=create_message).execute()
 		return f"Email sent successfully with Message ID: {send_message['id']}"
@@ -289,6 +296,7 @@ def send_email(to: str, subject: str, body: str, confirmed: bool = False) -> str
 	except Exception as e:
 		frappe.log_error(f"An unexpected error occurred in send_email: {e}", "Gemini Gmail Error")
 		return "An unexpected error occurred. Please contact the system administrator."
+
 
 send_email.service = "gmail"
 
@@ -309,7 +317,9 @@ def search_contact_for_email(name: str) -> str:
 		credentials = get_user_credentials()
 		if not credentials:
 			return json.dumps(
-				{"error": "Could not get user credentials. Please make sure you have authenticated with Google."}
+				{
+					"error": "Could not get user credentials. Please make sure you have authenticated with Google."
+				}
 			)
 		people_service = build("people", "v1", credentials=credentials)
 
@@ -322,7 +332,9 @@ def search_contact_for_email(name: str) -> str:
 
 		people = results.get("results", [])
 		if not people:
-			return json.dumps({"status": "not_found", "message": f"No contact found matching the name '{name}'."})
+			return json.dumps(
+				{"status": "not_found", "message": f"No contact found matching the name '{name}'."}
+			)
 
 		contacts_with_email = []
 		for person_result in people:
@@ -334,12 +346,12 @@ def search_contact_for_email(name: str) -> str:
 				primary_email = email_addresses[0].get("value")
 				if primary_email:
 					score = fuzz.token_set_ratio(name, display_name)
-					contacts_with_email.append(
-						{"name": display_name, "email": primary_email, "score": score}
-					)
+					contacts_with_email.append({"name": display_name, "email": primary_email, "score": score})
 
 		if not contacts_with_email:
-			return json.dumps({"status": "not_found", "message": f"No contact with an email address found for '{name}'."})
+			return json.dumps(
+				{"status": "not_found", "message": f"No contact with an email address found for '{name}'."}
+			)
 
 		# Sort by score descending
 		sorted_contacts = sorted(contacts_with_email, key=lambda x: x["score"], reverse=True)
@@ -353,17 +365,21 @@ def search_contact_for_email(name: str) -> str:
 			return json.dumps({"status": "found", "email": sorted_contacts[0]["email"]})
 
 		# Otherwise, return a list for the user to clarify
-		return json.dumps({
-			"status": "disambiguation",
-			"message": "Found multiple contacts. Please clarify which one you mean.",
-			"contacts": sorted_contacts
-		})
+		return json.dumps(
+			{
+				"status": "disambiguation",
+				"message": "Found multiple contacts. Please clarify which one you mean.",
+				"contacts": sorted_contacts,
+			}
+		)
 
 	except HttpError as error:
 		frappe.log_error(
-			f"Google People API Error for query '{name}': {str(error.content)[:100]}", "Gemini Contact Search Error"
+			f"Google People API Error for query '{name}': {str(error.content)[:100]}",
+			"Gemini Contact Search Error",
 		)
 		return json.dumps({"status": "error", "message": "An API error occurred during contact search."})
+
 
 search_contact_for_email.service = "google"
 
@@ -410,6 +426,7 @@ def get_doc_context(doctype: str, docname: str) -> str:
 	except Exception as e:
 		frappe.log_error(f"Error fetching doc context: {e!s}")
 		return f"(System: Could not retrieve context for {doctype} {docname}.)\n"
+
 
 get_doc_context.service = "erpnext"
 
@@ -475,7 +492,9 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 
 			if relevant_docs:
 				# Confident Match: If top score is 1.5x higher than the second, we have a clear winner.
-				if len(relevant_docs) == 1 or (len(relevant_docs) > 1 and relevant_docs[0]["score"] >= relevant_docs[1]["score"] * 1.5):
+				if len(relevant_docs) == 1 or (
+					len(relevant_docs) > 1 and relevant_docs[0]["score"] >= relevant_docs[1]["score"] * 1.5
+				):
 					top_doc_info = relevant_docs[0]
 					doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
 					doc_dict = json.loads(frappe.as_json(doc))
@@ -506,13 +525,24 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					results_string += f"- <a href='{doc_url}' target='_blank'>{label}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 					if doc.get("content"):
 						results_string += f"  - Matching Content: \"...{doc['content'][:150]}...\"\n"
-				return {"type": "disambiguation", "docs": relevant_docs, "string_representation": results_string}
-
+				return {
+					"type": "disambiguation",
+					"docs": relevant_docs,
+					"string_representation": results_string,
+				}
 
 		# --- Priority #3: Fuzzy Text Search (Fallback) ---
 		default_doctypes = [
-			"Project", "Customer", "Supplier", "Item", "Sales Order",
-			"Purchase Order", "Lead", "Opportunity", "Task", "Issue"
+			"Project",
+			"Customer",
+			"Supplier",
+			"Item",
+			"Sales Order",
+			"Purchase Order",
+			"Lead",
+			"Opportunity",
+			"Task",
+			"Issue",
 		]
 		doctypes_to_search = [doctype] if doctype else default_doctypes
 		all_scored_docs = []
@@ -522,14 +552,18 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 				meta = frappe.get_meta(dt)
 				fields_to_fetch = _get_doctype_fields(dt)
 				text_like_fields = [
-					f.fieldname for f in meta.fields
-					if f.fieldtype in ["Data", "Text", "Small Text", "Long Text", "Select", "Link", "Read Only"]
+					f.fieldname
+					for f in meta.fields
+					if f.fieldtype
+					in ["Data", "Text", "Small Text", "Long Text", "Select", "Link", "Read Only"]
 					and f.fieldname in fields_to_fetch
 				]
 				if not text_like_fields:
 					continue
 				or_filters = [[field, "like", f"%{query}%"] for field in text_like_fields]
-				candidate_docs = frappe.get_all(dt, fields=fields_to_fetch, or_filters=or_filters, limit_page_length=20)
+				candidate_docs = frappe.get_all(
+					dt, fields=fields_to_fetch, or_filters=or_filters, limit_page_length=20
+				)
 
 				if not candidate_docs:
 					continue
@@ -545,7 +579,9 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 
 				for doc in candidate_docs:
 					total_score = 0
-					full_text = " ".join([str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights])
+					full_text = " ".join(
+						[str(doc.get(f, "")) for f in fields_to_fetch if f not in field_weights]
+					)
 					total_score += fuzz.token_set_ratio(query, full_text)
 					for field, weight in field_weights.items():
 						field_value = str(doc.get(field, ""))
@@ -554,14 +590,18 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 
 					if total_score > 70:
 						label = (title_field and doc.get(title_field)) or doc.name
-						all_scored_docs.append({"name": doc.name, "doctype": dt, "score": total_score, "label": label})
+						all_scored_docs.append(
+							{"name": doc.name, "doctype": dt, "score": total_score, "label": label}
+						)
 
 			except frappe.DoesNotExistError:
 				continue
 
 		if all_scored_docs:
 			sorted_docs = sorted(all_scored_docs, key=lambda x: x["score"], reverse=True)
-			if len(sorted_docs) == 1 or (len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5):
+			if len(sorted_docs) == 1 or (
+				len(sorted_docs) > 1 and sorted_docs[0]["score"] > sorted_docs[1]["score"] * 1.5
+			):
 				top_doc_info = sorted_docs[0]
 				doc = frappe.get_doc(top_doc_info["doctype"], top_doc_info["name"])
 				doc_dict = json.loads(frappe.as_json(doc))
@@ -579,19 +619,26 @@ def search_erpnext_documents(query: str, doctype: str = None, limit: int = 5) ->
 					doc_url = get_url_to_form(doc["doctype"], doc["name"])
 					results_string += f"- <a href='{doc_url}' target='_blank'>{doc['label']}</a> (ID: {doc['name']}, Type: {doc['doctype']}, Score: {doc['score']:.2f})\n"
 					disambiguation_docs.append(doc)
-				return {"type": "disambiguation", "docs": disambiguation_docs, "string_representation": results_string}
+				return {
+					"type": "disambiguation",
+					"docs": disambiguation_docs,
+					"string_representation": results_string,
+				}
 
 		# --- Final "No Results" Output ---
 		no_results_message = f"I couldn't find any documents matching your query for '{query}'. You could try rephrasing your search, or if you know the specific ID, you can use that directly."
 		return {"type": "no_match", "string_representation": no_results_message}
 
-	except Exception as e:
+	except Exception:
 		frappe.log_error(
 			message=f"Error in search_erpnext_documents: {frappe.get_traceback()}",
 			title="Gemini Search Error",
 		)
-		error_string = "An error occurred while searching for documents. Please check the Error Log for details."
+		error_string = (
+			"An error occurred while searching for documents. Please check the Error Log for details."
+		)
 		return {"type": "error", "string_representation": error_string}
+
 
 search_erpnext_documents.service = "erpnext"
 
@@ -671,7 +718,9 @@ def search_gmail(query: str) -> str:
 		)
 		return "An API error occurred during Gmail search. Please check the Error Log for details.\n"
 
+
 search_gmail.service = "gmail"
+
 
 @mcp.tool()
 @log_activity
@@ -720,7 +769,9 @@ def search_drive(query: str) -> str:
 	except HttpError as error:
 		return f"An error occurred with Google Drive: {error}"
 
+
 search_drive.service = "drive"
+
 
 @mcp.tool()
 @log_activity
@@ -781,7 +832,9 @@ def search_calendar(query: str) -> str:
 	except HttpError as error:
 		return f"An error occurred with Google Calendar: {error}"
 
+
 search_calendar.service = "calendar"
+
 
 @mcp.tool()
 @log_activity
@@ -840,7 +893,9 @@ def get_drive_file_context(file_id: str) -> str:
 		frappe.log_error(f"Error fetching drive file context for {file_id}: {e!s}")
 		return f"(System: Could not retrieve context for Google Drive file {file_id}.)\n"
 
+
 get_drive_file_context.service = "drive"
+
 
 @mcp.tool()
 @log_activity
@@ -890,7 +945,9 @@ def get_gmail_message_context(message_id: str) -> str:
 		frappe.log_error(f"Error fetching gmail context for {message_id}: {e!s}")
 		return f"(System: Could not retrieve context for Gmail message {message_id}.)\n"
 
+
 get_gmail_message_context.service = "gmail"
+
 
 @mcp.tool()
 @log_activity
@@ -912,7 +969,9 @@ def find_best_match_for_doctype(doctype_name: str) -> str:
 		return best_match[0]
 	return None
 
+
 find_best_match_for_doctype.service = "erpnext"
+
 
 @mcp.tool()
 @log_activity
@@ -930,7 +989,9 @@ def search_google_contacts(name: str) -> str:
 		credentials = get_user_credentials()
 		if not credentials:
 			return json.dumps(
-				{"error": "Could not get user credentials. Please make sure you have authenticated with Google."}
+				{
+					"error": "Could not get user credentials. Please make sure you have authenticated with Google."
+				}
 			)
 		people_service = build("people", "v1", credentials=credentials)
 		gmail_service = build("gmail", "v1", credentials=credentials)
@@ -992,9 +1053,11 @@ def search_google_contacts(name: str) -> str:
 
 	except HttpError as error:
 		frappe.log_error(
-			f"Google People API Error for query '{name}': {str(error.content)[:100]}", "Gemini Contact Search Error"
+			f"Google People API Error for query '{name}': {str(error.content)[:100]}",
+			"Gemini Contact Search Error",
 		)
 		return json.dumps({"error": "An API error occurred during contact search."})
+
 
 search_google_contacts.service = "google"
 
@@ -1022,13 +1085,16 @@ def create_drive_file(file_name: str, file_content: str, folder_id: str = None) 
 		if folder_id:
 			file_metadata["parents"] = [folder_id]
 
-		fh = BytesIO(file_content.encode('utf-8'))
-		media = MediaIoBaseUpload(fh, mimetype='text/plain')
+		fh = BytesIO(file_content.encode("utf-8"))
+		media = MediaIoBaseUpload(fh, mimetype="text/plain")
 
-		file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+		file = (
+			service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+		)
 		return f"File '{file_name}' created successfully. Link: {file.get('webViewLink')}"
 	except HttpError as error:
 		return f"An error occurred with Google Drive: {error}"
+
 
 create_drive_file.service = "drive"
 
@@ -1051,13 +1117,14 @@ def update_drive_file(file_id: str, file_content: str) -> str:
 		if not credentials:
 			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("drive", "v3", credentials=credentials)
-		fh = BytesIO(file_content.encode('utf-8'))
-		media = MediaIoBaseUpload(fh, mimetype='text/plain')
+		fh = BytesIO(file_content.encode("utf-8"))
+		media = MediaIoBaseUpload(fh, mimetype="text/plain")
 
 		file = service.files().update(fileId=file_id, media_body=media).execute()
-		return f"File updated successfully."
+		return "File updated successfully."
 	except HttpError as error:
 		return f"An error occurred with Google Drive: {error}"
+
 
 update_drive_file.service = "drive"
 
@@ -1087,6 +1154,7 @@ def delete_drive_file(file_id: str, confirm: bool = False) -> str:
 	except HttpError as error:
 		return f"An error occurred with Google Drive: {error}"
 
+
 delete_drive_file.service = "drive"
 
 
@@ -1111,9 +1179,9 @@ def modify_gmail_label(message_id: str, add_labels: list[str] = None, remove_lab
 		service = build("gmail", "v1", credentials=credentials)
 		body = {}
 		if add_labels:
-			body['addLabelIds'] = add_labels
+			body["addLabelIds"] = add_labels
 		if remove_labels:
-			body['removeLabelIds'] = remove_labels
+			body["removeLabelIds"] = remove_labels
 
 		if not body:
 			return "Please specify labels to add or remove."
@@ -1122,6 +1190,7 @@ def modify_gmail_label(message_id: str, add_labels: list[str] = None, remove_lab
 		return "Labels modified successfully."
 	except HttpError as error:
 		return f"An error occurred with Gmail: {error}"
+
 
 modify_gmail_label.service = "gmail"
 
@@ -1151,13 +1220,16 @@ def delete_gmail_message(message_id: str, confirm: bool = False) -> str:
 	except HttpError as error:
 		return f"An error occurred with Gmail: {error}"
 
+
 delete_gmail_message.service = "gmail"
 
 
 @mcp.tool()
 @log_activity
 @handle_errors
-def create_google_calendar_event(summary: str, start_time: str, end_time: str, attendees: list[str] = None) -> str:
+def create_google_calendar_event(
+	summary: str, start_time: str, end_time: str, attendees: list[str] = None
+) -> str:
 	"""Creates a new event in Google Calendar.
 
 	Args:
@@ -1175,23 +1247,24 @@ def create_google_calendar_event(summary: str, start_time: str, end_time: str, a
 			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("calendar", "v3", credentials=credentials)
 		event = {
-			'summary': summary,
-			'start': {
-				'dateTime': start_time,
-				'timeZone': frappe.db.get_single_value('System Settings', 'time_zone'),
+			"summary": summary,
+			"start": {
+				"dateTime": start_time,
+				"timeZone": frappe.db.get_single_value("System Settings", "time_zone"),
 			},
-			'end': {
-				'dateTime': end_time,
-				'timeZone': frappe.db.get_single_value('System Settings', 'time_zone'),
+			"end": {
+				"dateTime": end_time,
+				"timeZone": frappe.db.get_single_value("System Settings", "time_zone"),
 			},
 		}
 		if attendees:
-			event['attendees'] = [{'email': email} for email in attendees]
+			event["attendees"] = [{"email": email} for email in attendees]
 
-		created_event = service.events().insert(calendarId='primary', body=event).execute()
+		created_event = service.events().insert(calendarId="primary", body=event).execute()
 		return f"Event created successfully. Link: {created_event.get('htmlLink')}"
 	except HttpError as error:
 		return f"An error occurred with Google Calendar: {error}"
+
 
 create_google_calendar_event.service = "calendar"
 
@@ -1199,7 +1272,13 @@ create_google_calendar_event.service = "calendar"
 @mcp.tool()
 @log_activity
 @handle_errors
-def update_google_calendar_event(event_id: str, summary: str = None, start_time: str = None, end_time: str = None, attendees: list[str] = None) -> str:
+def update_google_calendar_event(
+	event_id: str,
+	summary: str = None,
+	start_time: str = None,
+	end_time: str = None,
+	attendees: list[str] = None,
+) -> str:
 	"""Updates an existing event in Google Calendar.
 
 	Args:
@@ -1219,22 +1298,23 @@ def update_google_calendar_event(event_id: str, summary: str = None, start_time:
 		service = build("calendar", "v3", credentials=credentials)
 
 		# Get the existing event to update it
-		event = service.events().get(calendarId='primary', eventId=event_id).execute()
+		event = service.events().get(calendarId="primary", eventId=event_id).execute()
 
 		if summary:
-			event['summary'] = summary
+			event["summary"] = summary
 		if start_time:
-			event['start']['dateTime'] = start_time
+			event["start"]["dateTime"] = start_time
 		if end_time:
-			event['end']['dateTime'] = end_time
+			event["end"]["dateTime"] = end_time
 		if attendees:
-			event['attendees'] = [{'email': email} for email in attendees]
+			event["attendees"] = [{"email": email} for email in attendees]
 
-		updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
+		updated_event = service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
 		return f"Event updated successfully. Link: {updated_event.get('htmlLink')}"
 
 	except HttpError as error:
 		return f"An error occurred with Google Calendar: {error}"
+
 
 update_google_calendar_event.service = "calendar"
 
@@ -1259,10 +1339,11 @@ def delete_google_calendar_event(event_id: str, confirm: bool = False) -> str:
 		if not credentials:
 			return "Could not get user credentials. Please make sure you have authenticated with Google."
 		service = build("calendar", "v3", credentials=credentials)
-		service.events().delete(calendarId='primary', eventId=event_id).execute()
+		service.events().delete(calendarId="primary", eventId=event_id).execute()
 		return "Event deleted successfully."
 	except HttpError as error:
 		return f"An error occurred with Google Calendar: {error}"
+
 
 delete_google_calendar_event.service = "calendar"
 
@@ -1307,6 +1388,7 @@ Please confirm if you want to add this comment."""
 		frappe.log_error(f"Error creating comment: {e}", "Gemini Tool Error")
 		return "An error occurred while creating the comment."
 
+
 create_comment.service = "erpnext"
 
 
@@ -1314,83 +1396,84 @@ create_comment.service = "erpnext"
 @log_activity
 @handle_errors
 def create_task(
-    subject: str,
-    project: str = None,
-    description: str = None,
-    priority: str = None,
-    assigned_to: str = None,
-    exp_end_date: str = None,
-    confirmed: bool = False,
+	subject: str,
+	project: str = None,
+	description: str = None,
+	priority: str = None,
+	assigned_to: str = None,
+	exp_end_date: str = None,
+	confirmed: bool = False,
 ) -> str:
-    """
-    Creates a new Task in ERPNext or asks for confirmation.
+	"""
+	Creates a new Task in ERPNext or asks for confirmation.
 
-    Args:
-        subject (str): The subject or title of the task.
-        project (str, optional): The project this task belongs to. Defaults to None.
-        description (str, optional): A detailed description of the task. Defaults to None.
-        priority (str, optional): Priority of the task (e.g., 'Low', 'Medium', 'High'). Defaults to None.
-        assigned_to (str, optional): The full name of the person to assign the task to. Defaults to None.
-        exp_end_date (str, optional): The expected end date for the task (e.g., '2024-12-31'). Defaults to None.
-        confirmed (bool): If False, returns a draft. If True, creates the task.
+	Args:
+	    subject (str): The subject or title of the task.
+	    project (str, optional): The project this task belongs to. Defaults to None.
+	    description (str, optional): A detailed description of the task. Defaults to None.
+	    priority (str, optional): Priority of the task (e.g., 'Low', 'Medium', 'High'). Defaults to None.
+	    assigned_to (str, optional): The full name of the person to assign the task to. Defaults to None.
+	    exp_end_date (str, optional): The expected end date for the task (e.g., '2024-12-31'). Defaults to None.
+	    confirmed (bool): If False, returns a draft. If True, creates the task.
 
-    Returns:
-        str: A summary for confirmation or a success/failure message.
-    """
-    if not confirmed:
-        draft = "**Task Draft for your approval:**\n\n"
-        draft += f"**Subject:** {subject}\n"
-        if project:
-            draft += f"**Project:** {project}\n"
-        if description:
-            draft += f"**Description:** {description}\n"
-        if priority:
-            draft += f"**Priority:** {priority}\n"
-        if assigned_to:
-            draft += f"**Assigned To:** {assigned_to}\n"
-        if exp_end_date:
-            draft += f"**Due Date:** {exp_end_date}\n"
-        draft += "\nPlease confirm if you want to create this task."
-        return draft
+	Returns:
+	    str: A summary for confirmation or a success/failure message.
+	"""
+	if not confirmed:
+		draft = "**Task Draft for your approval:**\n\n"
+		draft += f"**Subject:** {subject}\n"
+		if project:
+			draft += f"**Project:** {project}\n"
+		if description:
+			draft += f"**Description:** {description}\n"
+		if priority:
+			draft += f"**Priority:** {priority}\n"
+		if assigned_to:
+			draft += f"**Assigned To:** {assigned_to}\n"
+		if exp_end_date:
+			draft += f"**Due Date:** {exp_end_date}\n"
+		draft += "\nPlease confirm if you want to create this task."
+		return draft
 
-    if not frappe.has_permission("Task", "create"):
-        return "You do not have permission to create Tasks."
+	if not frappe.has_permission("Task", "create"):
+		return "You do not have permission to create Tasks."
 
-    try:
-        task = frappe.new_doc("Task")
-        task.subject = subject
-        if project:
-            task.project = project
-        if description:
-            task.description = description
-        if priority and priority in ["Low", "Medium", "High"]:
-            task.priority = priority
-        if exp_end_date:
-            task.exp_end_date = exp_end_date
+	try:
+		task = frappe.new_doc("Task")
+		task.subject = subject
+		if project:
+			task.project = project
+		if description:
+			task.description = description
+		if priority and priority in ["Low", "Medium", "High"]:
+			task.priority = priority
+		if exp_end_date:
+			task.exp_end_date = exp_end_date
 
-        assignee_email = None
-        if assigned_to:
-            user = frappe.db.get_value("User", {"full_name": assigned_to}, "email")
-            if user:
-                assignee_email = user
-            else:
-                user = frappe.db.get_value("User", {"email": assigned_to}, "email")
-                if user:
-                    assignee_email = user
+		assignee_email = None
+		if assigned_to:
+			user = frappe.db.get_value("User", {"full_name": assigned_to}, "email")
+			if user:
+				assignee_email = user
+			else:
+				user = frappe.db.get_value("User", {"email": assigned_to}, "email")
+				if user:
+					assignee_email = user
 
-            if not assignee_email:
-                return f"Could not find a user with the name or email '{assigned_to}' to assign the task to."
+			if not assignee_email:
+				return f"Could not find a user with the name or email '{assigned_to}' to assign the task to."
 
-        task.insert(ignore_permissions=True)
+		task.insert(ignore_permissions=True)
 
-        if assignee_email:
-            task.add_assignee(assignee_email)
+		if assignee_email:
+			task.add_assignee(assignee_email)
 
-        task_url = get_url_to_form("Task", task.name)
-        return f"Task '{subject}' created successfully. Link: {task_url}"
-    except Exception as e:
-        frappe.log_error(f"Error creating task: {e}", "Gemini Tool Error")
-        return "An error occurred while creating the task."
+		task_url = get_url_to_form("Task", task.name)
+		return f"Task '{subject}' created successfully. Link: {task_url}"
+	except Exception as e:
+		frappe.log_error(f"Error creating task: {e}", "Gemini Tool Error")
+		return "An error occurred while creating the task."
+
 
 create_task.service = "erpnext"
 
@@ -1399,38 +1482,39 @@ create_task.service = "erpnext"
 @log_activity
 @handle_errors
 def update_document_status(doctype: str, docname: str, status: str, confirmed: bool = False) -> str:
-    """
-    Updates the status of a document (e.g., Task, Project) or asks for confirmation.
+	"""
+	Updates the status of a document (e.g., Task, Project) or asks for confirmation.
 
-    Args:
-        doctype (str): The DocType of the document to update.
-        docname (str): The name of the document to update.
-        status (str): The new status to set for the document.
-        confirmed (bool): If False, returns a draft. If True, updates the status.
+	Args:
+	    doctype (str): The DocType of the document to update.
+	    docname (str): The name of the document to update.
+	    status (str): The new status to set for the document.
+	    confirmed (bool): If False, returns a draft. If True, updates the status.
 
-    Returns:
-        str: A summary for confirmation or a success/failure message.
-    """
-    if not confirmed:
-        return f"""**Status Update Confirmation:**
+	Returns:
+	    str: A summary for confirmation or a success/failure message.
+	"""
+	if not confirmed:
+		return f"""**Status Update Confirmation:**
 
 **Document:** {doctype} - {docname}
 **New Status:** {status}
 
 Please confirm if you want to apply this status change."""
 
-    if not frappe.has_permission(doctype, "write", docname):
-        return f"You do not have permission to update the status of {doctype} {docname}."
+	if not frappe.has_permission(doctype, "write", docname):
+		return f"You do not have permission to update the status of {doctype} {docname}."
 
-    try:
-        doc = frappe.get_doc(doctype, docname)
-        doc.status = status
-        doc.save(ignore_permissions=True)  # Permissions already checked
-        doc_url = get_url_to_form(doctype, docname)
-        return f"Status of {doctype} {docname} updated to '{status}'. Link: {doc_url}"
-    except Exception as e:
-        frappe.log_error(f"Error updating document status: {e}", "Gemini Tool Error")
-        return "An error occurred while updating the document status."
+	try:
+		doc = frappe.get_doc(doctype, docname)
+		doc.status = status
+		doc.save(ignore_permissions=True)  # Permissions already checked
+		doc_url = get_url_to_form(doctype, docname)
+		return f"Status of {doctype} {docname} updated to '{status}'. Link: {doc_url}"
+	except Exception as e:
+		frappe.log_error(f"Error updating document status: {e}", "Gemini Tool Error")
+		return "An error occurred while updating the document status."
+
 
 from gemini_integration.utils import generate_text as gemini_generate_text
 
@@ -1441,16 +1525,16 @@ update_document_status.service = "erpnext"
 @log_activity
 @handle_errors
 def generate_text(prompt: str) -> str:
-    """
-    Generates text using the Gemini model. This is a general-purpose tool for text creation.
+	"""
+	Generates text using the Gemini model. This is a general-purpose tool for text creation.
 
-    Args:
-        prompt (str): The prompt for the model.
+	Args:
+	    prompt (str): The prompt for the model.
 
-    Returns:
-        str: The generated text.
-    """
-    return gemini_generate_text(prompt)
+	Returns:
+	    str: The generated text.
+	"""
+	return gemini_generate_text(prompt)
 
 
 generate_text.service = "erpnext"
@@ -1460,37 +1544,37 @@ generate_text.service = "erpnext"
 @log_activity
 @handle_errors
 def project_health_check(project_name: str) -> str:
-    """
-    Provides a health check on a project.
+	"""
+	Provides a health check on a project.
 
-    Args:
-        project_name (str): The name of the project to check.
+	Args:
+	    project_name (str): The name of the project to check.
 
-    Returns:
-        str: A Markdown formatted report of the project's health.
-    """
-    project = search_erpnext_documents(query=project_name, doctype="Project")
+	Returns:
+	    str: A Markdown formatted report of the project's health.
+	"""
+	project = search_erpnext_documents(query=project_name, doctype="Project")
 
-    if project["type"] != "confident_match":
-        return project["string_representation"]
+	if project["type"] != "confident_match":
+		return project["string_representation"]
 
-    project_data = project["doc"]
+	project_data = project["doc"]
 
-    tasks = fetch_erpnext_data(
-        doctype="Task",
-        filters={"project": project_data["name"]},
-        fields=["name", "subject", "status", "exp_end_date"],
-    )
+	tasks = fetch_erpnext_data(
+		doctype="Task",
+		filters={"project": project_data["name"]},
+		fields=["name", "subject", "status", "exp_end_date"],
+	)
 
-    comments = fetch_erpnext_data(
-        doctype="Comment",
-        filters={"reference_doctype": "Project", "reference_name": project_data["name"]},
-        fields=["name", "comment_by", "content"],
-    )
+	comments = fetch_erpnext_data(
+		doctype="Comment",
+		filters={"reference_doctype": "Project", "reference_name": project_data["name"]},
+		fields=["name", "comment_by", "content"],
+	)
 
-    emails = search_gmail(query=project_name)
+	emails = search_gmail(query=project_name)
 
-    prompt = f"""
+	prompt = f"""
     Analyze the following project data, tasks, comments, and emails to generate a comprehensive health report in Markdown format.
     Your analysis should identify potential risks by examining the language and content of the provided information.
     Look for signs of delays, budget issues, scope creep, negative sentiment, or resource constraints.
@@ -1502,9 +1586,9 @@ def project_health_check(project_name: str) -> str:
     Emails: {emails}
     """
 
-    health_report = gemini_generate_text(prompt)
+	health_report = gemini_generate_text(prompt)
 
-    return health_report
+	return health_report
 
 
 project_health_check.service = "erpnext"

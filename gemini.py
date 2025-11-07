@@ -3,10 +3,10 @@ import io
 import json
 import re
 from datetime import datetime, timedelta
-import markdown
 
 import frappe
 import google.generativeai as genai
+import markdown
 import requests
 from bs4 import BeautifulSoup
 from frappe.utils import get_site_url, get_url_to_form
@@ -26,6 +26,7 @@ from gemini_integration.utils import (
 	handle_errors,
 	log_activity,
 	search_erpnext_documents,
+	get_drive_file_context,
 )
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
@@ -190,9 +191,7 @@ def get_text_representation_for_doc(doc):
 			child_meta = frappe.get_meta(field.options)
 
 			# Header
-			headers = [
-				child_field.label for child_field in child_meta.fields if child_field.in_list_view
-			]
+			headers = [child_field.label for child_field in child_meta.fields if child_field.in_list_view]
 			md_table = f"| {' | '.join(headers)} |\n"
 			md_table += f"| {' | '.join(['---'] * len(headers))} |\n"
 
@@ -570,7 +569,7 @@ def _sanitize_tools(mcp_instance):
 		return []
 
 	# Accessing the private registry is the intended pattern for this library.
-	for tool_name, tool_def in mcp_instance._tool_registry.items():
+	for _tool_name, tool_def in mcp_instance._tool_registry.items():
 		# 1. Whitelist keys and rename 'input_schema' to 'parameters'.
 		# The 'fn' key contains the actual function object, which is not serializable
 		# and not needed by the Google API.
@@ -646,7 +645,9 @@ def generate_chat_response(
 			# If the conversation ID is invalid, start a new conversation
 			conversation_id = None
 		except json.JSONDecodeError:
-			frappe.log_error(f"Could not parse conversation history for ID {conversation_id}", "Gemini Integration")
+			frappe.log_error(
+				f"Could not parse conversation history for ID {conversation_id}", "Gemini Integration"
+			)
 			# Start a new conversation if history is corrupted
 			conversation_id = None
 
@@ -779,12 +780,14 @@ def generate_chat_response(
 	full_history.append({"role": "user", "text": prompt if isinstance(prompt, str) else "Tool output"})
 	full_history.append({"role": "gemini", "text": final_response_text})
 
-	new_conversation_id = save_conversation(conversation_id, prompt if isinstance(prompt, str) else "Chat", full_history)
+	new_conversation_id = save_conversation(
+		conversation_id, prompt if isinstance(prompt, str) else "Chat", full_history
+	)
 
 	return {
 		"response": final_response_text,
 		"conversation_id": new_conversation_id,
-		"clarification_needed": False, # This can be enhanced in the future
+		"clarification_needed": False,  # This can be enhanced in the future
 	}
 
 
