@@ -466,7 +466,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	planner_response = client.models.generate_content(
 		model=model_name,
 		contents=prompt,
-		generation_config=types.GenerateContentConfig(**planner_config_args),
+		**planner_config_args,
 	)
 
 	# --- 1b. Process Planner Response ---
