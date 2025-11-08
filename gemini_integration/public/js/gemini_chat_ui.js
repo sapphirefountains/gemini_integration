@@ -48,6 +48,8 @@ function createGeminiChatUI(parentElement, options = {}) {
         #gemini-chat-container .chat-bubble.user { background-color: var(--gemini-user-bubble); color: white; border-bottom-right-radius: 4px; }
         #gemini-chat-container .chat-bubble.gemini { background-color: var(--gemini-model-bubble); color: var(--gemini-text-color); border-bottom-left-radius: 4px; }
         #gemini-chat-container .chat-bubble.thoughts { background-color: #f3f4f6; border: 1px solid var(--gemini-border-color); color: #4b5563; width: 100%; max-width: 100%; margin: 15px 0; padding: 15px; }
+        #gemini-chat-container .thoughts-container { width: 100%; margin-bottom: 15px; }
+        #gemini-chat-container .token-count { text-align: right; font-size: 12px; color: var(--gemini-light-text); margin-top: 5px; }
 		#gemini-chat-container .chat-bubble .generated-image { max-width: 100%; border-radius: 10px; margin-top: 10px; }
 		#gemini-chat-container .greeting-card { padding: 24px; border-radius: 12px; text-align: center; margin: auto; }
 		#gemini-chat-container .greeting-title { font-size: 32px; font-weight: 500; margin-bottom: 10px; }
@@ -256,6 +258,32 @@ function createGeminiChatUI(parentElement, options = {}) {
 			send_btn.show();
 			streaming_bubble = null;
 			full_response = "";
+		}
+	});
+
+	frappe.realtime.on("gemini_chat_thought", function (data) {
+		if (data.thought) {
+			let thoughts_container = chat_history.find(".thoughts-container");
+			if (thoughts_container.length === 0) {
+				thoughts_container = $(`<div class="thoughts-container"></div>`).appendTo(
+					chat_history
+				);
+			}
+			thoughts_container.append(
+				`<div class="chat-bubble thoughts">${DOMPurify.sanitize(
+					new showdown.Converter().makeHtml(data.thought)
+				)}</div>`
+			);
+			chat_history.scrollTop(chat_history[0].scrollHeight);
+		}
+		if (data.token_count) {
+			let thoughts_container = chat_history.find(".thoughts-container");
+			if (thoughts_container.length > 0) {
+				thoughts_container.append(
+					`<div class="token-count">Thinking Tokens: ${data.token_count}</div>`
+				);
+				chat_history.scrollTop(chat_history[0].scrollHeight);
+			}
 		}
 	});
 
