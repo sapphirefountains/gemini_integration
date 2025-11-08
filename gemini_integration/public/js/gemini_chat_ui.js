@@ -299,9 +299,15 @@ function createGeminiChatUI(parentElement, options = {}) {
 		if (data.thought) {
 			let thoughts_container = chat_history.find(".thoughts-container");
 			if (thoughts_container.length === 0) {
-				thoughts_container = $(`<div class="thoughts-container"></div>`).appendTo(
-					chat_history
-				);
+				if (streaming_bubble) {
+					thoughts_container = $(`<div class="thoughts-container"></div>`).insertBefore(
+						streaming_bubble.parent()
+					);
+				} else {
+					thoughts_container = $(`<div class="thoughts-container"></div>`).appendTo(
+						chat_history
+					);
+				}
 			}
 			thoughts_container.append(
 				`<div class="chat-bubble thoughts">${DOMPurify.sanitize(
