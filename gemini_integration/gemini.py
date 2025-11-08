@@ -50,11 +50,17 @@ def generate_image(prompt):
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
 	try:
-		model = genai.GenerativeModel("gemini-2.5-flash-image", api_key=api_key)
-		response = model.generate_content(prompt)
+		client = genai.Client(api_key=api_key)
+		response = client.models.generate_content(
+			model="gemini-2.5-flash-image",
+			contents=prompt,
+			config=types.GenerateContentConfig(
+				response_modalities=["IMAGE"],
+			),
+		)
 
 		image_data = None
-		for part in response.candidates[0].content.parts:
+		for part in response.parts:
 			if part.inline_data:
 				image_data = part.inline_data.data
 				break
@@ -120,9 +126,15 @@ def upload_file_to_gemini(file_name, file_content):
 	Returns:
 	    google.genai.files.File: The uploaded file object, or None on failure.
 	"""
+	settings = frappe.get_single("Gemini Settings")
+	api_key = settings.get_password("api_key")
+	if not api_key:
+		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
+
 	try:
+		client = genai.Client(api_key=api_key)
 		# Upload the file to the Gemini API
-		uploaded_file = genai.upload_file(path=file_content, display_name=file_name)
+		uploaded_file = client.files.upload(file=file_content, display_name=file_name)
 		return uploaded_file
 	except Exception as e:
 		frappe.log_error(f"Gemini File API Error: {e!s}", "Gemini Integration")
@@ -452,23 +464,21 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 1a. Planning Phase (Non-Streaming) ---
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
-	model_instance = genai.GenerativeModel(
-		model_name=model_name,
-		api_key=api_key,
-		system_instruction=planner_config_args.get("system_instruction"),
-		generation_config=types.GenerationConfig(**planner_config_args.get("generation_config", {})),
-	)
+	client = genai.Client(api_key=api_key)
 
-	generation_args = {}
+	generation_args = {
+		"model": model_name,
+		"contents": prompt,
+		"config": types.GenerateContentConfig(
+			system_instruction=planner_config_args.get("system_instruction"),
+			tools=planner_config_args.get("tools"),
+			tool_config=planner_config_args.get("tool_config"),
+		),
+	}
 	if planner_config_args.get("thinking_config"):
-		generation_args["thinking_config"] = planner_config_args.get("thinking_config")
+		generation_args["config"].thinking_config = planner_config_args.get("thinking_config")
 
-	planner_response = model_instance.generate_content(
-		prompt,
-		tools=planner_config_args.get("tools"),
-		tool_config=planner_config_args.get("tool_config"),
-		**generation_args,
-	)
+	planner_response = client.models.generate_content(**generation_args)
 
 	# --- 1b. Process Planner Response ---
 	planner_response_text = ""
@@ -540,19 +550,17 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		if stream:
 			# This prompt is designed to make the model simply repeat the text.
 			streaming_prompt = f"Please present the following text to the user. Do not add any extra commentary, just provide the text as is:\n\n---\n\n{final_response_text}"
-			model_instance = genai.GenerativeModel(model_name)
-			direct_stream = model_instance.generate_content(
-				streaming_prompt,
-				stream=True,
+			direct_stream = client.models.generate_content_stream(
+				model=model_name,
+				contents=streaming_prompt,
 			)
 
 			streamed_text_to_save = ""
 			for chunk in direct_stream:
-				for part in chunk.candidates[0].content.parts:
-					if part.text:
-						text_chunk = part.text
-						streamed_text_to_save += text_chunk
-						frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
+				if chunk.text:
+					text_chunk = chunk.text
+					streamed_text_to_save += text_chunk
+					frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
 
 			# Save the final, streamed text to the conversation history
 			conversation_history.append({"role": "user", "text": prompt})
@@ -657,35 +665,30 @@ Format your response in clear, readable Markdown.
 **Your Answer:**
 """
 
-	synthesis_config_args = {
-		"system_instruction": synthesis_instruction,
-	}
-	if show_thinking:
-		synthesis_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
-
-	model_instance = genai.GenerativeModel(
-		model_name=model_name,
+	synthesis_config = types.GenerateContentConfig(
 		system_instruction=synthesis_instruction,
 	)
+	if show_thinking:
+		synthesis_config.thinking_config = types.ThinkingConfig(include_thoughts=True)
 
 	# --- 5. Stream or Return Final Response ---
 	if stream:
-		final_response = model_instance.generate_content(
-			final_prompt_content, stream=True, **synthesis_config_args
+		final_response = client.models.generate_content_stream(
+			model=model_name, contents=final_prompt_content, config=synthesis_config
 		)
 	else:
-		final_response = model_instance.generate_content(final_prompt_content, **synthesis_config_args)
+		final_response = client.models.generate_content(
+			model=model_name, contents=final_prompt_content, config=synthesis_config
+		)
 	if stream:
 		final_response_text = ""
 		for chunk in final_response:
-			for part in chunk.candidates[0].content.parts:
-				if part.text:
-					if hasattr(part, "thought") and part.thought:
-						frappe.publish_realtime("gemini_chat_thought", {"thought": part.text}, user=user)
-					else:
-						text_chunk = part.text
-						final_response_text += text_chunk
-						frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
+			if hasattr(chunk, "thought") and chunk.thought:
+				frappe.publish_realtime("gemini_chat_thought", {"thought": chunk.text}, user=user)
+			elif chunk.text:
+				text_chunk = chunk.text
+				final_response_text += text_chunk
+				frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
 
 		final_response_text = _linkify_erpnext_docs(final_response_text)
 		conversation_history.append({"role": "user", "text": prompt})
