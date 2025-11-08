@@ -463,10 +463,20 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 1a. Planning Phase (Non-Streaming) ---
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
-	planner_response = client.models.generate_content(
-		model=model_name,
-		contents=prompt,
-		**planner_config_args,
+	model_instance = client.get_generative_model(
+		model_name=model_name,
+		system_instruction=planner_config_args.get("system_instruction"),
+	)
+
+	generation_args = {}
+	if planner_config_args.get("thinking_config"):
+		generation_args["thinking_config"] = planner_config_args.get("thinking_config")
+
+	planner_response = model_instance.generate_content(
+		prompt,
+		tools=planner_config_args.get("tools"),
+		tool_config=planner_config_args.get("tool_config"),
+		**generation_args,
 	)
 
 	# --- 1b. Process Planner Response ---
@@ -539,10 +549,10 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		if stream:
 			# This prompt is designed to make the model simply repeat the text.
 			streaming_prompt = f"Please present the following text to the user. Do not add any extra commentary, just provide the text as is:\n\n---\n\n{final_response_text}"
-
-			direct_stream = client.models.generate_content_stream(
-				model=model_name,
-				contents=streaming_prompt,
+			model_instance = client.get_generative_model(model_name)
+			direct_stream = model_instance.generate_content(
+				streaming_prompt,
+				stream=True,
 			)
 
 			streamed_text_to_save = ""
@@ -662,17 +672,21 @@ Format your response in clear, readable Markdown.
 	if show_thinking:
 		synthesis_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
+	model_instance = client.get_generative_model(
+		model_name=model_name,
+		system_instruction=synthesis_instruction,
+	)
+
 	if stream:
-		final_response = client.models.generate_content_stream(
-			model=model_name,
-			contents=final_prompt_content,
-			config=types.GenerateContentConfig(**synthesis_config_args),
+		final_response = model_instance.generate_content(
+			final_prompt_content,
+			stream=True,
+			generation_config=types.GenerateContentConfig(**synthesis_config_args),
 		)
 	else:
-		final_response = client.models.generate_content(
-			model=model_name,
-			contents=final_prompt_content,
-			config=types.GenerateContentConfig(**synthesis_config_args),
+		final_response = model_instance.generate_content(
+			final_prompt_content,
+			generation_config=types.GenerateContentConfig(**synthesis_config_args),
 		)
 
 	# --- 5. Stream or Return Final Response ---
