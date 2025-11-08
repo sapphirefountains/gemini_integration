@@ -329,6 +329,9 @@ def generate_chat_response(
 	user=None,
 	doctype=None,
 	docname=None,
+	latitude=None,
+	longitude=None,
+	manual_location=None,
 ):
 	"""Handles chat interactions using a Plan-Execute-Synthesize model.
 
@@ -343,6 +346,9 @@ def generate_chat_response(
 			Defaults to None.
 		doctype (str, optional): The DocType of the document the user is viewing. Defaults to None.
 		docname (str, optional): The name of the document the user is viewing. Defaults to None.
+		latitude (float, optional): The user's latitude. Defaults to None.
+		longitude (float, optional): The user's longitude. Defaults to None.
+		manual_location (str, optional): A location string provided by the user. Defaults to None.
 
 	Returns:
 		dict or None: A dictionary containing the response for non-streaming calls,
@@ -409,6 +415,31 @@ def generate_chat_response(
 	if settings.enable_google_search and use_google_search:
 		tool_declarations.append({"google_search": {}})
 
+	tool_config = {"function_calling_config": {"mode": "ANY"}}
+	if settings.enable_google_maps_grounding:
+		tool_declarations.append(types.Tool(google_maps=types.GoogleMaps(enable_widget=True)))
+		if manual_location:
+			from geopy.geocoders import Nominatim
+
+			geolocator = Nominatim(user_agent="gemini_integration")
+			location = geolocator.geocode(manual_location)
+			if location:
+				latitude = location.latitude
+				longitude = location.longitude
+			else:
+				frappe.publish_realtime(
+					"gemini_chat_update",
+					{"message": f"Could not find a location for '{manual_location}'."},
+					user=user,
+				)
+				frappe.publish_realtime("gemini_chat_update", {"end_of_stream": True}, user=user)
+				return
+
+		if latitude and longitude:
+			tool_config["retrieval_config"] = types.RetrievalConfig(
+				lat_lng=types.LatLng(latitude=latitude, longitude=longitude)
+			)
+
 	# Craft the "Planner" instruction
 	planning_instruction = """
 You are a planner for an AI assistant integrated into ERPNext. Your job is to analyze the user's prompt and the list of available tools.
@@ -425,7 +456,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		contents=prompt,
 		config=types.GenerateContentConfig(
 			tools=tool_declarations,
-			tool_config={"function_calling_config": {"mode": "ANY"}},
+			tool_config=tool_config,
 			system_instruction=planning_instruction,
 			generation_config=generation_config,
 		),
@@ -433,6 +464,21 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	planner_response_text = ""
 	tool_call = None
 	for chunk in planner_response_stream:
+		if chunk.candidates[0].grounding_metadata:
+			grounding_metadata = chunk.candidates[0].grounding_metadata
+			if grounding_metadata.google_maps_widget_context_token:
+				frappe.publish_realtime(
+					"gemini_chat_update",
+					{
+						"map_widget_token": grounding_metadata.google_maps_widget_context_token,
+						"sources": [
+							{"title": c.maps.title, "uri": c.maps.uri}
+							for c in grounding_metadata.grounding_chunks
+						],
+					},
+					user=user,
+				)
+
 		for part in chunk.candidates[0].content.parts:
 			if hasattr(part, "function_call"):
 				tool_call = part.function_call
