@@ -253,6 +253,31 @@ function createGeminiChatUI(parentElement, options = {}) {
 				chat_history.scrollTop(chat_history[0].scrollHeight);
 			}
 		}
+		if (data.map_widget_token) {
+			if (streaming_bubble) {
+				const map_widget = $(
+					`<div class="map-widget-container" style="margin-top: 15px;"></div>`
+				);
+				map_widget.html(
+					`<gmp-place-contextual context-token="${data.map_widget_token}"></gmp-place-contextual>`
+				);
+				streaming_bubble.append(map_widget);
+			}
+		}
+		if (data.sources) {
+			if (streaming_bubble) {
+				const sources_container = $(
+					'<div class="sources-container" style="margin-top: 15px; font-size: 12px;"></div>'
+				);
+				sources_container.append("<strong>Sources:</strong><ul>");
+				data.sources.forEach((source) => {
+					sources_container.find("ul").append(
+						`<li><a href="${source.uri}" target="_blank">${source.title}</a></li>`
+					);
+				});
+				streaming_bubble.append(sources_container);
+			}
+		}
 		if (data.end_of_stream) {
 			chat_input.prop("disabled", false);
 			spinner_container.hide();
@@ -292,6 +317,52 @@ function createGeminiChatUI(parentElement, options = {}) {
 		const prompt = prompt_text || chat_input.val().trim();
 		if (!prompt) return;
 
+		const location_keywords = ["near me", "directions", "map of", "restaurants in", "hotels in"];
+		const is_location_query = location_keywords.some((keyword) =>
+			prompt.toLowerCase().includes(keyword)
+		);
+
+		if (is_location_query) {
+			get_location_and_send(prompt);
+		} else {
+			send_with_location(prompt, null);
+		}
+	};
+
+	const get_location_and_send = (prompt) => {
+		if (navigator.geolocation) {
+			navigator.geolocation.getCurrentPosition(
+				(position) => {
+					send_with_location(prompt, {
+						latitude: position.coords.latitude,
+						longitude: position.coords.longitude,
+					});
+				},
+				() => {
+					// User denied permission, so we ask for manual input.
+					frappe.prompt(
+						{
+							label: "Enter a location (e.g., 'San Francisco, CA')",
+							fieldname: "location",
+							fieldtype: "Data",
+						},
+						(values) => {
+							// For simplicity, we'll send the string and let the backend handle geocoding if needed.
+							// A more advanced implementation would geocode here.
+							send_with_location(prompt, { manual_location: values.location });
+						},
+						"Location Required"
+					);
+				}
+			);
+		} else {
+			// Geolocation is not supported by this browser.
+			frappe.msgprint("Geolocation is not supported by your browser.");
+			send_with_location(prompt, null);
+		}
+	};
+
+	const send_with_location = (prompt, location) => {
 		add_to_history("user", prompt);
 		chat_input.val("").trigger("input"); // Clear and trigger input to resize
 		send_btn.hide();
@@ -307,6 +378,12 @@ function createGeminiChatUI(parentElement, options = {}) {
 			conversation_id: currentConversation,
 			use_google_search: google_search_checkbox.is(":checked"),
 		};
+
+		if (location) {
+			args.latitude = location.latitude;
+			args.longitude = location.longitude;
+			args.manual_location = location.manual_location;
+		}
 
 		if (page_context && is_context_active) {
 			args.doctype = page_context.doctype;
@@ -526,7 +603,21 @@ function createGeminiChatUI(parentElement, options = {}) {
 		load_conversation($(this).data("id"));
 	});
 
+	const load_google_maps_script = () => {
+		frappe.call({
+			method: "gemini_integration.api.get_google_maps_api_key",
+			callback: (r) => {
+				if (r.message) {
+					const script = document.createElement("script");
+					script.src = `https://maps.googleapis.com/maps/api/js?key=${r.message}&libraries=places`;
+					document.head.appendChild(script);
+				}
+			},
+		});
+	};
+
 	load_conversations();
+	load_google_maps_script();
 	// Fetch the available tools and then render the greeting
 	frappe.call({
 		method: "gemini_integration.api.get_tool_mentions",

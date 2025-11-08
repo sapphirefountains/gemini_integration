@@ -7,7 +7,9 @@
  "engine": "InnoDB",
  "field_order": [
   "api_key",
+  "google_maps_api_key",
    "enable_google_search",
+   "enable_google_maps_grounding",
   "show_thinking",
   "model",
   "system_instruction",
@@ -25,11 +27,23 @@
    "label": "API Key",
    "reqd": 1
   },
+  {
+   "fieldname": "google_maps_api_key",
+   "fieldtype": "Data",
+   "label": "Google Maps API Key"
+  },
    {
     "fieldname": "enable_google_search",
     "fieldtype": "Check",
     "label": "Enable Google Search",
     "description": "When enabled, the model can use Google Search to answer questions about recent events or topics.",
+    "default": "0"
+   },
+   {
+    "fieldname": "enable_google_maps_grounding",
+    "fieldtype": "Check",
+    "label": "Enable Google Maps Grounding",
+    "description": "When enabled, the model can use Google Maps to answer location-based questions.",
     "default": "0"
    },
   {

@@ -78,7 +78,15 @@ def chat(prompt=None, model=None, conversation_id=None, use_google_search=False)
 
 @frappe.whitelist()
 def stream_chat(
-	prompt=None, model=None, conversation_id=None, use_google_search=False, doctype=None, docname=None
+	prompt=None,
+	model=None,
+	conversation_id=None,
+	use_google_search=False,
+	doctype=None,
+	docname=None,
+	latitude=None,
+	longitude=None,
+	manual_location=None,
 ):
 	"""Handles streaming chat interactions via a background job."""
 	if not prompt:
@@ -103,6 +111,9 @@ def stream_chat(
 		user=initiating_user,  # Pass the user context to the background job
 		doctype=doctype,
 		docname=docname,
+		latitude=latitude,
+		longitude=longitude,
+		manual_location=manual_location,
 	)
 
 	# Return an immediate response to the client to confirm the task has started.
@@ -275,3 +286,13 @@ def get_tool_mentions():
 		if mention not in excluded_services:
 			tool_buttons.append({"label": details.get("label"), "mention": f"@{mention}"})
 	return tool_buttons
+
+
+@frappe.whitelist()
+def get_google_maps_api_key():
+	"""Retrieves the Google Maps API key from Gemini Settings.
+
+	Returns:
+	    str: The Google Maps API key, or None if not configured.
+	"""
+	return frappe.db.get_single_value("Gemini Settings", "google_maps_api_key")
