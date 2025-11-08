@@ -358,11 +358,6 @@ def generate_chat_response(
 	settings = frappe.get_single("Gemini Settings")
 	show_thinking = settings.get("show_thinking", 0)
 
-	generation_config = None
-	if show_thinking:
-		generation_config = types.GenerateContentConfig(
-			thinking_config=types.ThinkingConfig(include_thoughts=True)
-		)
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
@@ -458,15 +453,18 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	if doctype and docname:
 		planning_instruction += f"\n\nThe user is currently viewing the document '{docname}' of type '{doctype}'. Prioritize this information when creating the plan."
 
+	planner_config_args = {
+		"tools": tool_declarations,
+		"tool_config": tool_config,
+		"system_instruction": planning_instruction,
+	}
+	if show_thinking:
+		planner_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+
 	planner_response_stream = client.models.generate_content_stream(
 		model=model_name,
 		contents=prompt,
-		config=types.GenerateContentConfig(
-			tools=tool_declarations,
-			tool_config=tool_config,
-			system_instruction=planning_instruction,
-			generation_config=generation_config,
-		),
+		config=types.GenerateContentConfig(**planner_config_args),
 	)
 	planner_response_text = ""
 	tool_call = None
@@ -638,14 +636,17 @@ Format your response in clear, readable Markdown.
 **Your Answer:**
 """
 
+	synthesis_config_args = {
+		"system_instruction": synthesis_instruction,
+	}
+	if show_thinking:
+		synthesis_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+
 	final_response = client.models.generate_content(
 		model=model_name,
 		contents=final_prompt_content,
 		stream=stream,
-		config=types.GenerateContentConfig(
-			system_instruction=synthesis_instruction,
-			generation_config=generation_config,
-		),
+		config=types.GenerateContentConfig(**synthesis_config_args),
 	)
 
 	# --- 5. Stream or Return Final Response ---
