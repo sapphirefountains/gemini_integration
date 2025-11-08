@@ -15,7 +15,7 @@ frappe.pages["gemini-integration"].on_page_load = function (wrapper) {
 		label: "Model",
 		fieldtype: "Select",
 		fieldname: "model",
-		options: ["gemini-2.5-flash", "gemini-2.5-pro"],
+		options: ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"],
 	});
 
 	let response_area = page.add_field({
