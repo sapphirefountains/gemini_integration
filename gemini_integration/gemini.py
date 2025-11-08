@@ -461,39 +461,44 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	if show_thinking:
 		planner_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
-	planner_response_stream = client.models.generate_content_stream(
+	# --- 1a. Planning Phase (Non-Streaming) ---
+	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
+	planner_response = client.models.generate_content(
 		model=model_name,
 		contents=prompt,
-		config=types.GenerateContentConfig(**planner_config_args),
+		generation_config=types.GenerateContentConfig(**planner_config_args),
 	)
+
+	# --- 1b. Process Planner Response ---
 	planner_response_text = ""
 	tool_call = None
-	for chunk in planner_response_stream:
-		if chunk.candidates[0].grounding_metadata:
-			grounding_metadata = chunk.candidates[0].grounding_metadata
-			if grounding_metadata.google_maps_widget_context_token:
-				frappe.publish_realtime(
-					"gemini_chat_update",
-					{
-						"map_widget_token": grounding_metadata.google_maps_widget_context_token,
-						"sources": [
-							{"title": c.maps.title, "uri": c.maps.uri}
-							for c in grounding_metadata.grounding_chunks
-						],
-					},
-					user=user,
-				)
 
-		for part in chunk.candidates[0].content.parts:
-			if hasattr(part, "function_call"):
-				tool_call = part.function_call
-				break
-			if part.text:
-				if hasattr(part, "thought") and part.thought:
-					frappe.publish_realtime("gemini_chat_thought", {"thought": part.text}, user=user)
-				else:
-					planner_response_text += part.text
-		if tool_call:
+	# Non-streaming response handling
+	if planner_response.candidates[0].grounding_metadata:
+		grounding_metadata = planner_response.candidates[0].grounding_metadata
+		if grounding_metadata.google_maps_widget_context_token:
+			frappe.publish_realtime(
+				"gemini_chat_update",
+				{
+					"map_widget_token": grounding_metadata.google_maps_widget_context_token,
+					"sources": [
+						{"title": c.maps.title, "uri": c.maps.uri} for c in grounding_metadata.grounding_chunks
+					],
+				},
+				user=user,
+			)
+	# Safely access the text part of the response
+	try:
+		planner_response_text = planner_response.text
+	except ValueError:
+		# This can happen if the response is only a tool call and has no text part.
+		planner_response_text = ""
+
+
+	# Check for a tool call in the response parts
+	for part in planner_response.candidates[0].content.parts:
+		if hasattr(part, "function_call"):
+			tool_call = part.function_call
 			break
 
 	# --- 2. Parse Planner Response ---
@@ -526,20 +531,39 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# If it was determined to be a direct response, handle it and exit.
 	if direct_response:
+		# If we have a direct answer, we process it and exit.
 		final_response_text = _linkify_erpnext_docs(planner_response_text)
 
-		# Save the conversation history
-		conversation_history.append({"role": "user", "text": prompt})
-		conversation_history.append({"role": "gemini", "text": final_response_text})
-		save_conversation(conversation_id, prompt, conversation_history, user=user)
-
-		# If streaming, publish the final answer and signal the end.
+		# If streaming, we still want the typewriter effect.
+		# We'll initiate a new, simple streaming call to deliver the response.
 		if stream:
-			frappe.publish_realtime("gemini_chat_update", {"message": final_response_text}, user=user)
+			# This prompt is designed to make the model simply repeat the text.
+			streaming_prompt = f"Please present the following text to the user. Do not add any extra commentary, just provide the text as is:\n\n---\n\n{final_response_text}"
+
+			direct_stream = client.models.generate_content_stream(
+				model=model_name,
+				contents=streaming_prompt,
+			)
+
+			streamed_text_to_save = ""
+			for chunk in direct_stream:
+				for part in chunk.candidates[0].content.parts:
+					if part.text:
+						text_chunk = part.text
+						streamed_text_to_save += text_chunk
+						frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
+
+			# Save the final, streamed text to the conversation history
+			conversation_history.append({"role": "user", "text": prompt})
+			conversation_history.append({"role": "gemini", "text": streamed_text_to_save})
+			save_conversation(conversation_id, prompt, conversation_history, user=user)
 			frappe.publish_realtime("gemini_chat_update", {"end_of_stream": True}, user=user)
 			return
 
-		# For non-streaming, return the final payload.
+		# For non-streaming, save and return the final payload directly.
+		conversation_history.append({"role": "user", "text": prompt})
+		conversation_history.append({"role": "gemini", "text": final_response_text})
+		save_conversation(conversation_id, prompt, conversation_history, user=user)
 		return {
 			"response": final_response_text,
 			"thoughts": "The model provided a direct answer without using tools.",
