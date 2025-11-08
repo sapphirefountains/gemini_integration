@@ -83,9 +83,6 @@ def generate_image(prompt):
 # --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
 
 
-# --- GOOGLE SERVICE-SPECIFIC FUNCTIONS ---
-
-
 @log_activity
 @handle_errors
 def get_drive_file_for_analysis(credentials, file_id):
@@ -463,9 +460,10 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 1a. Planning Phase (Non-Streaming) ---
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
-	model_instance = client.get_generative_model(
+	model_instance = genai.GenerativeModel(
 		model_name=model_name,
 		system_instruction=planner_config_args.get("system_instruction"),
+		generation_config=types.GenerationConfig(**planner_config_args.get("generation_config", {})),
 	)
 
 	generation_args = {}
@@ -549,7 +547,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		if stream:
 			# This prompt is designed to make the model simply repeat the text.
 			streaming_prompt = f"Please present the following text to the user. Do not add any extra commentary, just provide the text as is:\n\n---\n\n{final_response_text}"
-			model_instance = client.get_generative_model(model_name)
+			model_instance = genai.GenerativeModel(model_name)
 			direct_stream = model_instance.generate_content(
 				streaming_prompt,
 				stream=True,
@@ -672,24 +670,18 @@ Format your response in clear, readable Markdown.
 	if show_thinking:
 		synthesis_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
-	model_instance = client.get_generative_model(
+	model_instance = genai.GenerativeModel(
 		model_name=model_name,
 		system_instruction=synthesis_instruction,
 	)
 
+	# --- 5. Stream or Return Final Response ---
 	if stream:
 		final_response = model_instance.generate_content(
-			final_prompt_content,
-			stream=True,
-			generation_config=types.GenerateContentConfig(**synthesis_config_args),
+			final_prompt_content, stream=True, **synthesis_config_args
 		)
 	else:
-		final_response = model_instance.generate_content(
-			final_prompt_content,
-			generation_config=types.GenerateContentConfig(**synthesis_config_args),
-		)
-
-	# --- 5. Stream or Return Final Response ---
+		final_response = model_instance.generate_content(final_prompt_content, **synthesis_config_args)
 	if stream:
 		final_response_text = ""
 		for chunk in final_response:
