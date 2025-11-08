@@ -2,7 +2,7 @@ import functools
 import traceback
 
 import frappe
-import google.generativeai as genai
+import google.genai as genai
 from frappe.utils import get_site_url
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -266,7 +266,7 @@ def configure_gemini():
 		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
 		return None
 	try:
-		genai.configure(api_key=api_key)
+		genai.Client(api_key=api_key)
 		return True
 	except Exception as e:
 		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
@@ -281,9 +281,12 @@ def generate_embedding(text):
 		# This will be logged by the background job, so no need to throw
 		return None
 	try:
-		result = genai.embed_content(
-			model="models/embedding-001",
-			content=text,
+		settings = frappe.get_single("Gemini Settings")
+		api_key = settings.get_password("api_key")
+		client = genai.Client(api_key=api_key)
+		result = client.models.embed_content(
+			model="gemini-2.5-pro",
+			contents=text,
 			task_type="RETRIEVAL_DOCUMENT",
 			title="ERPNext Document",
 		)
@@ -317,11 +320,19 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	try:
-		model_instance = genai.GenerativeModel(model_name)
+		settings = frappe.get_single("Gemini Settings")
+		api_key = settings.get_password("api_key")
+		client = genai.Client(api_key=api_key)
 		if uploaded_files:
-			response = model_instance.generate_content([prompt, *uploaded_files])
+			response = client.models.generate_content(
+				model=model_name,
+				contents=[prompt, *uploaded_files],
+			)
 		else:
-			response = model_instance.generate_content(prompt)
+			response = client.models.generate_content(
+				model=model_name,
+				contents=prompt,
+			)
 		try:
 			return response.text
 		except ValueError:
