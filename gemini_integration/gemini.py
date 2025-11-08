@@ -638,12 +638,18 @@ Format your response in clear, readable Markdown.
 	if show_thinking:
 		synthesis_config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
-	final_response = client.models.generate_content(
-		model=model_name,
-		contents=final_prompt_content,
-		stream=stream,
-		config=types.GenerateContentConfig(**synthesis_config_args),
-	)
+	if stream:
+		final_response = client.models.generate_content_stream(
+			model=model_name,
+			contents=final_prompt_content,
+			config=types.GenerateContentConfig(**synthesis_config_args),
+		)
+	else:
+		final_response = client.models.generate_content(
+			model=model_name,
+			contents=final_prompt_content,
+			config=types.GenerateContentConfig(**synthesis_config_args),
+		)
 
 	# --- 5. Stream or Return Final Response ---
 	if stream:
