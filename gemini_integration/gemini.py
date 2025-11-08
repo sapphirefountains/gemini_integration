@@ -5,10 +5,10 @@ import re
 from datetime import datetime, timedelta
 
 import frappe
-import google.generativeai as genai
+import google.genai as genai
 import requests
 from frappe.utils import get_site_url, get_url_to_form
-from google.generativeai import types
+from google.genai import types
 
 # Google API Imports
 from googleapiclient.errors import HttpError
@@ -44,12 +44,17 @@ def generate_image(prompt):
 	Returns:
 	    str: The public URL of the generated image file, or None on failure.
 	"""
-	if not configure_gemini():
+	settings = frappe.get_single("Gemini Settings")
+	api_key = settings.get_password("api_key")
+	if not api_key:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
+	client = genai.Client(api_key=api_key)
 
 	try:
-		model_instance = genai.GenerativeModel("gemini-2.5-flash-image")
-		response = model_instance.generate_content(prompt)
+		response = client.models.generate_content(
+			model="gemini-2.5-flash-image",
+			contents=prompt,
+		)
 
 		image_data = None
 		for part in response.candidates[0].content.parts:
@@ -91,7 +96,7 @@ def get_drive_file_for_analysis(credentials, file_id):
 	    file_id (str): The ID of the Google Drive file.
 
 	Returns:
-	    google.generativeai.files.File: The uploaded file object, or None on failure.
+	    google.genai.files.File: The uploaded file object, or None on failure.
 	"""
 	try:
 		# Get the file content from Google Drive
@@ -119,7 +124,7 @@ def upload_file_to_gemini(file_name, file_content):
 	    file_content (bytes): The content of the file.
 
 	Returns:
-	    google.generativeai.files.File: The uploaded file object, or None on failure.
+	    google.genai.files.File: The uploaded file object, or None on failure.
 	"""
 	try:
 		# Upload the file to the Gemini API
@@ -356,7 +361,7 @@ def generate_chat_response(
 	if not api_key:
 		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
 	try:
-		genai.configure(api_key=api_key)
+		client = genai.Client(api_key=api_key)
 	except Exception as e:
 		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
 		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
@@ -364,7 +369,7 @@ def generate_chat_response(
 	from gemini_integration.mcp import mcp
 	from gemini_integration.utils import is_google_integrated
 
-	model_name = model or settings.default_model or "gemini-1.5-pro"
+	model_name = model or settings.default_model or "gemini-2.5-pro"
 
 	# Load conversation history
 	conversation_history = []
@@ -415,17 +420,15 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	if doctype and docname:
 		planning_instruction += f"\n\nThe user is currently viewing the document '{docname}' of type '{doctype}'. Prioritize this information when creating the plan."
 
-	planner_model = genai.GenerativeModel(
-		model_name,
-		tools=tool_declarations,
-		tool_config={
-			"function_calling_config": {"mode": "ANY"}
-		},  # Use ANY to allow for direct response or tool plan
-		system_instruction=planning_instruction,
-	)
-
-	planner_response_stream = planner_model.generate_content(
-		prompt, stream=True, generation_config=generation_config
+	planner_response_stream = client.models.generate_content_stream(
+		model=model_name,
+		contents=prompt,
+		config=types.GenerateContentConfig(
+			tools=tool_declarations,
+			tool_config={"function_calling_config": {"mode": "ANY"}},
+			system_instruction=planning_instruction,
+			generation_config=generation_config,
+		),
 	)
 	planner_response_text = ""
 	tool_call = None
@@ -582,9 +585,14 @@ Format your response in clear, readable Markdown.
 **Your Answer:**
 """
 
-	synthesis_model = genai.GenerativeModel(model_name, system_instruction=synthesis_instruction)
-	final_response = synthesis_model.generate_content(
-		final_prompt_content, stream=stream, generation_config=generation_config
+	final_response = client.models.generate_content(
+		model=model_name,
+		contents=final_prompt_content,
+		stream=stream,
+		config=types.GenerateContentConfig(
+			system_instruction=synthesis_instruction,
+			generation_config=generation_config,
+		),
 	)
 
 	# --- 5. Stream or Return Final Response ---
