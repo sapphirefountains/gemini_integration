@@ -28,7 +28,7 @@ from gemini_integration.tools import (
 	search_google_contacts,
 	update_document_status,
 )
-from gemini_integration.utils import configure_gemini, generate_embedding, generate_text
+from gemini_integration.utils import generate_embedding, generate_text
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
 
@@ -48,10 +48,9 @@ def generate_image(prompt):
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
-	genai.configure(api_key=api_key)
 
 	try:
-		model = genai.GenerativeModel("gemini-2.5-flash-image")
+		model = genai.GenerativeModel("gemini-2.5-flash-image", api_key=api_key)
 		response = model.generate_content(prompt)
 
 		image_data = None
@@ -356,11 +355,6 @@ def generate_chat_response(
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
-	try:
-		genai.configure(api_key=api_key)
-	except Exception as e:
-		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
-		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
 
 	from gemini_integration.mcp import mcp
 	from gemini_integration.utils import is_google_integrated
@@ -460,6 +454,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
 	model_instance = genai.GenerativeModel(
 		model_name=model_name,
+		api_key=api_key,
 		system_instruction=planner_config_args.get("system_instruction"),
 		generation_config=types.GenerationConfig(**planner_config_args.get("generation_config", {})),
 	)

@@ -255,10 +255,10 @@ def process_google_callback(code, state, error):
 
 
 def configure_gemini():
-	"""Configures the Google Generative AI client with the API key from settings.
+	"""Configures and returns a Google Generative AI client.
 
 	Returns:
-	    bool: True if configuration is successful, None otherwise.
+	    genai.Client or None: A configured client instance if the API key is found, otherwise None.
 	"""
 	settings = frappe.get_single("Gemini Settings")
 	api_key = settings.get_password("api_key")
@@ -266,10 +266,9 @@ def configure_gemini():
 		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
 		return None
 	try:
-		genai.Client(api_key=api_key)
-		return True
+		return genai.Client(api_key=api_key)
 	except Exception as e:
-		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
+		frappe.log_error(f"Failed to create Gemini client: {e!s}", "Gemini Integration")
 		return None
 
 
@@ -277,13 +276,11 @@ def generate_embedding(text):
 	"""
 	Generates an embedding for a given text using the Gemini API.
 	"""
-	if not configure_gemini():
-		# This will be logged by the background job, so no need to throw
+	client = configure_gemini()
+	if not client:
+		# Error is already logged in configure_gemini
 		return None
 	try:
-		settings = frappe.get_single("Gemini Settings")
-		api_key = settings.get_password("api_key")
-		client = genai.Client(api_key=api_key)
 		result = client.models.embed_content(
 			model="gemini-2.5-pro",
 			contents=text,
@@ -313,16 +310,14 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 	Returns:
 	    str: The generated text from the model.
 	"""
-	if not configure_gemini():
+	client = configure_gemini()
+	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
 	if not model_name:
 		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	try:
-		settings = frappe.get_single("Gemini Settings")
-		api_key = settings.get_password("api_key")
-		client = genai.Client(api_key=api_key)
 		if uploaded_files:
 			response = client.models.generate_content(
 				model=model_name,
