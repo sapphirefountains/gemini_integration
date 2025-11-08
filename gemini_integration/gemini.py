@@ -466,17 +466,19 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
 	client = genai.Client(api_key=api_key)
 
+	# The `generate_content` method expects configuration parameters to be passed directly,
+	# not nested under a 'config' object. We construct the arguments dictionary accordingly.
 	generation_args = {
 		"model": model_name,
 		"contents": prompt,
-		"config": types.GenerateContentConfig(
-			system_instruction=planner_config_args.get("system_instruction"),
-			tools=planner_config_args.get("tools"),
-			tool_config=planner_config_args.get("tool_config"),
-		),
+		"system_instruction": planner_config_args.get("system_instruction"),
+		"tools": planner_config_args.get("tools"),
+		"tool_config": planner_config_args.get("tool_config"),
 	}
-	if planner_config_args.get("thinking_config"):
-		generation_args["config"].thinking_config = planner_config_args.get("thinking_config")
+
+	# The 'thinking_config' implies a streaming response, which conflicts with tool usage.
+	# We explicitly do not add it to the planner call to avoid the INVALID_ARGUMENT error.
+	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
 	planner_response = client.models.generate_content(**generation_args)
 
