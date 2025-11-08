@@ -8,6 +8,7 @@
  "field_order": [
   "api_key",
    "enable_google_search",
+  "show_thinking",
   "model",
   "system_instruction",
   "log_level",
@@ -31,6 +32,13 @@
     "description": "When enabled, the model can use Google Search to answer questions about recent events or topics.",
     "default": "0"
    },
+  {
+   "fieldname": "show_thinking",
+   "fieldtype": "Check",
+   "label": "Show Thinking",
+   "description": "When enabled, the model's thinking process will be displayed in the chat window before the final answer.",
+   "default": "0"
+  },
   {
    "fieldname": "model",
    "fieldtype": "Select",

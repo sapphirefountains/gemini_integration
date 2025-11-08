@@ -8,6 +8,7 @@ import frappe
 import google.generativeai as genai
 import requests
 from frappe.utils import get_site_url, get_url_to_form
+from google.generativeai import types
 
 # Google API Imports
 from googleapiclient.errors import HttpError
@@ -344,6 +345,13 @@ def generate_chat_response(
 	"""
 	# --- 0. Setup and Configuration ---
 	settings = frappe.get_single("Gemini Settings")
+	show_thinking = settings.get("show_thinking", 0)
+
+	generation_config = None
+	if show_thinking:
+		generation_config = types.GenerateContentConfig(
+			thinking_config=types.ThinkingConfig(include_thoughts=True)
+		)
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
@@ -421,16 +429,34 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		system_instruction=planning_instruction,
 	)
 
-	planner_chat = planner_model.start_chat()
-	planner_response = planner_chat.send_message(prompt)
+	planner_response_stream = planner_model.generate_content(
+		prompt, stream=True, generation_config=generation_config
+	)
+	planner_response_text = ""
+	tool_call = None
+	for chunk in planner_response_stream:
+		for part in chunk.candidates[0].content.parts:
+			if hasattr(part, "function_call"):
+				tool_call = part.function_call
+				break
+			if part.text:
+				if hasattr(part, "thought") and part.thought:
+					frappe.publish_realtime("gemini_chat_thought", {"thought": part.text}, user=user)
+				else:
+					planner_response_text += part.text
+		if tool_call:
+			break
+
+	if show_thinking:
+		thoughts_token_count = planner_response_stream.usage_metadata.thoughts_token_count
+		frappe.publish_realtime("gemini_chat_thought", {"token_count": thoughts_token_count}, user=user)
 
 	# --- 2. Parse Planner Response ---
 	execution_plan = None
 	direct_response = False
 
 	# Check for a direct function call first. This is the most likely alternative to a JSON plan.
-	try:
-		tool_call = planner_response.candidates[0].content.parts[0].function_call
+	if tool_call:
 		# Adapt the single tool call to the list format expected by the execution phase.
 		execution_plan = [
 			{
@@ -439,11 +465,11 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 			}
 		]
 		frappe.log(f"Planner returned a direct function call: {tool_call.name}")
-	except (ValueError, IndexError, AttributeError):
+	else:
 		# If there's no function call, proceed to check for a JSON plan or a direct text response.
 		try:
 			# A valid plan is a parsable JSON string that is a non-empty list.
-			execution_plan = json.loads(planner_response.text)
+			execution_plan = json.loads(planner_response_text)
 			if not isinstance(execution_plan, list) or not execution_plan:
 				# If it's an empty list `[]` or not a list, treat it as a direct response.
 				direct_response = True
@@ -455,7 +481,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# If it was determined to be a direct response, handle it and exit.
 	if direct_response:
-		final_response_text = _linkify_erpnext_docs(planner_response.text)
+		final_response_text = _linkify_erpnext_docs(planner_response_text)
 
 		# Save the conversation history
 		conversation_history.append({"role": "user", "text": prompt})
@@ -562,15 +588,26 @@ Format your response in clear, readable Markdown.
 """
 
 	synthesis_model = genai.GenerativeModel(model_name, system_instruction=synthesis_instruction)
-	final_response = synthesis_model.generate_content(final_prompt_content, stream=stream)
+	final_response = synthesis_model.generate_content(
+		final_prompt_content, stream=stream, generation_config=generation_config
+	)
 
 	# --- 5. Stream or Return Final Response ---
 	if stream:
 		final_response_text = ""
 		for chunk in final_response:
-			text_chunk = chunk.text
-			final_response_text += text_chunk
-			frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
+			for part in chunk.candidates[0].content.parts:
+				if part.text:
+					if hasattr(part, "thought") and part.thought:
+						frappe.publish_realtime("gemini_chat_thought", {"thought": part.text}, user=user)
+					else:
+						text_chunk = part.text
+						final_response_text += text_chunk
+						frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
+
+		if show_thinking:
+			thoughts_token_count = final_response.usage_metadata.thoughts_token_count
+			frappe.publish_realtime("gemini_chat_thought", {"token_count": thoughts_token_count}, user=user)
 
 		final_response_text = _linkify_erpnext_docs(final_response_text)
 		conversation_history.append({"role": "user", "text": prompt})
