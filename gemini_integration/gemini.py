@@ -496,10 +496,6 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		if tool_call:
 			break
 
-	if show_thinking:
-		thoughts_token_count = planner_response_stream.usage_metadata.thoughts_token_count
-		frappe.publish_realtime("gemini_chat_thought", {"token_count": thoughts_token_count}, user=user)
-
 	# --- 2. Parse Planner Response ---
 	execution_plan = None
 	direct_response = False
@@ -661,10 +657,6 @@ Format your response in clear, readable Markdown.
 						text_chunk = part.text
 						final_response_text += text_chunk
 						frappe.publish_realtime("gemini_chat_update", {"message": text_chunk}, user=user)
-
-		if show_thinking:
-			thoughts_token_count = final_response.usage_metadata.thoughts_token_count
-			frappe.publish_realtime("gemini_chat_thought", {"token_count": thoughts_token_count}, user=user)
 
 		final_response_text = _linkify_erpnext_docs(final_response_text)
 		conversation_history.append({"role": "user", "text": prompt})
