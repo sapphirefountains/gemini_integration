@@ -387,23 +387,18 @@ def generate_chat_response(
 	for _tool_name, tool_data in mcp._tool_registry.items():
 		# Sanitize the tool declaration for the Google API
 		input_schema = tool_data.get("input_schema")
-		if input_schema and "properties" in input_schema:
+		declaration = {
+			"name": tool_data.get("name"),
+			"description": tool_data.get("description"),
+		}
+		# Only add the 'parameters' key if the tool has defined properties.
+		if input_schema and input_schema.get("properties"):
 			parameters = {
 				"type": "object",
 				"properties": input_schema.get("properties", {}),
 				"required": input_schema.get("required", []),
 			}
-		else:
-			parameters = None
-
-		declaration = {
-			"name": tool_data.get("name"),
-			"description": tool_data.get("description"),
-			"parameters": parameters,
-		}
-		declaration = {k: v for k, v in declaration.items() if v is not None}
-		if "parameters" in declaration:
-			declaration["parameters"] = _uppercase_schema_types(declaration["parameters"])
+			declaration["parameters"] = _uppercase_schema_types(parameters)
 		tool_declarations.append(declaration)
 
 	if settings.enable_google_search and use_google_search:
