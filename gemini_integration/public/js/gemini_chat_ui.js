@@ -625,6 +625,7 @@ function createGeminiChatUI(parentElement, options = {}) {
 				if (r.message) {
 					const script = document.createElement("script");
 					script.src = `https://maps.googleapis.com/maps/api/js?key=${r.message}&libraries=places`;
+					script.async = true;
 					document.head.appendChild(script);
 				}
 			},

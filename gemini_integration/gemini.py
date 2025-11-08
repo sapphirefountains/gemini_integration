@@ -48,13 +48,11 @@ def generate_image(prompt):
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
-	client = genai.Client(api_key=api_key)
+	genai.configure(api_key=api_key)
 
 	try:
-		response = client.models.generate_content(
-			model="gemini-2.5-flash-image",
-			contents=prompt,
-		)
+		model = genai.GenerativeModel("gemini-2.5-flash-image")
+		response = model.generate_content(prompt)
 
 		image_data = None
 		for part in response.candidates[0].content.parts:
@@ -359,7 +357,7 @@ def generate_chat_response(
 	if not api_key:
 		frappe.throw("Gemini API Key not found. Please configure it in Gemini Settings.")
 	try:
-		client = genai.Client(api_key=api_key)
+		genai.configure(api_key=api_key)
 	except Exception as e:
 		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
 		frappe.throw("An error occurred during Gemini configuration. Please check the logs.")
