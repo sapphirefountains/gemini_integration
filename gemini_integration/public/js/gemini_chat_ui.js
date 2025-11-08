@@ -87,6 +87,14 @@ function createGeminiChatUI(parentElement, options = {}) {
 			#gemini-chat-container .chat-history { flex-grow: 1; min-height: 0; }
 			#gemini-chat-container .chat-input-area { margin: 0 15px 15px; }
         }
+        .typing-indicator { display: flex; align-items: center; padding: 15px 20px; }
+        .typing-indicator span { height: 8px; width: 8px; border-radius: 50%; background-color: var(--gemini-light-text); margin: 0 2px; animation: typing-bounce 1.2s infinite ease-in-out; }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typing-bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
     `;
 	$("<style>").text(styles).appendTo("head");
 	$(
@@ -370,6 +378,7 @@ function createGeminiChatUI(parentElement, options = {}) {
 		chat_input.prop("disabled", true);
 
 		streaming_bubble = add_to_history("gemini", "");
+		streaming_bubble.html('<div class="typing-indicator"><span></span><span></span><span></span></div>');
 		full_response = "";
 
 		const args = {
