@@ -6,11 +6,11 @@ from datetime import datetime, timedelta
 
 import frappe
 import google.generativeai as genai
+from google.generativeai import types
 import markdown
 import requests
 from bs4 import BeautifulSoup
 from frappe.utils import get_site_url, get_url_to_form
-from google.generativeai import files
 from google.oauth2.credentials import Credentials
 
 # Google API Imports
@@ -35,10 +35,10 @@ from gemini_integration.utils import (
 @log_activity
 @handle_errors
 def configure_gemini():
-	"""Configures the Google Generative AI client with the API key from settings.
+	"""Configures and returns the Google GenAI client with the API key from settings.
 
 	Returns:
-		bool: True if configuration is successful, False otherwise.
+		google.genai.Client or None: The configured client instance, or None if configuration fails.
 	"""
 	settings = frappe.get_single("Gemini Settings")
 	api_key = settings.get_password("api_key")
@@ -46,8 +46,9 @@ def configure_gemini():
 		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
 		return None
 	try:
-		genai.configure(api_key=api_key)
-		return True
+		# The new SDK uses a client object.
+		client = genai.Client(api_key=api_key)
+		return client
 	except Exception as e:
 		frappe.log_error(f"Failed to configure Gemini: {e!s}", "Gemini Integration")
 		return None
@@ -55,16 +56,16 @@ def configure_gemini():
 
 @log_activity
 @handle_errors
-def generate_text(prompt, model_name=None, uploaded_files=None, generation_config=None):
-	"""Generates text using a specified Gemini model.
+def generate_text(prompt, model_name=None, uploaded_files=None, config=None):
+	"""Generates text using a specified Gemini model via the new GenAI SDK.
 
 	Args:
 		prompt (str): The text prompt to send to the model.
 		model_name (str, optional): The name of the Gemini model to use. Defaults to the
-			one specified in settings or 'gemini-1.5-pro'.
+			one specified in settings or 'gemini-2.5-pro'.
 		uploaded_files (list, optional): A list of files to include in the prompt.
 			Defaults to None.
-		generation_config (dict, optional): Configuration for the generation process.
+		config (dict, optional): Configuration for the generation process.
 			Defaults to None.
 
 	Returns:
@@ -73,26 +74,28 @@ def generate_text(prompt, model_name=None, uploaded_files=None, generation_confi
 	Raises:
 		frappe.Throw: If the Gemini integration is not configured.
 	"""
-	if not configure_gemini():
+	client = configure_gemini()
+	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
-	if not model_name:
-		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
+	model_to_use = (
+		model_name or frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-1.5-pro"
+	)
 
-	if generation_config is None:
-		generation_config = {}
+	generation_config = config or {}
 	if "max_output_tokens" not in generation_config:
-		if model_name in ["gemini-2.5-pro", "gemini-2.5-flash"]:
+		if model_to_use in ["gemini-2.5-pro", "gemini-2.5-flash"]:
 			generation_config["max_output_tokens"] = 8192
 
+	contents = [prompt]
+	if uploaded_files:
+		contents.extend(uploaded_files)
+
 	try:
-		model_instance = genai.GenerativeModel(model_name)
-		if uploaded_files:
-			response = model_instance.generate_content(
-				[prompt, *uploaded_files], generation_config=generation_config
-			)
-		else:
-			response = model_instance.generate_content([prompt], generation_config=generation_config)
+		# The new SDK uses a stateless function on the client's `models` service.
+		response = client.models.generate_content(
+			model=model_to_use, contents=contents, config=generation_config
+		)
 		return response.text
 	except Exception as e:
 		frappe.log_error(f"Gemini API Error: {e!s}", "Gemini Integration")
@@ -104,7 +107,7 @@ def generate_text(prompt, model_name=None, uploaded_files=None, generation_confi
 @log_activity
 @handle_errors
 def generate_embedding(text, model_name="embedding-001"):
-	"""Generates an embedding for a given text.
+	"""Generates an embedding for a given text using the new GenAI SDK.
 
 	Args:
 		text (str): The text to embed.
@@ -114,11 +117,14 @@ def generate_embedding(text, model_name="embedding-001"):
 	Returns:
 		list[float] or None: The generated embedding vector, or None if an error occurs.
 	"""
-	if not configure_gemini():
+	client = configure_gemini()
+	if not client:
 		frappe.throw("Gemini integration is not configured.")
 	try:
-		result = genai.embed_content(model=f"models/{model_name}", content=text)
-		return result["embedding"]
+		# The new SDK uses a stateless function on the client's `models` service.
+		result = client.models.embed_content(model=f"models/{model_name}", contents=text)
+		# The new SDK returns a pydantic model, access embedding via attribute
+		return result.embedding
 	except Exception as e:
 		frappe.log_error(f"Gemini Embedding Error: {e!s}", "Gemini Integration")
 		return None
@@ -599,9 +605,9 @@ def _sanitize_tools(mcp_instance):
 @log_activity
 @handle_errors
 def generate_chat_response(
-	prompt, model=None, conversation_id=None, selected_options=None, generation_config=None
+	prompt, model=None, conversation_id=None, selected_options=None, config=None
 ):
-	"""Orchestrates chat interactions, including URL fetching, tool calling, and conversation management.
+	"""Orchestrates chat interactions using the new GenAI SDK.
 
 	This is the main entry point for handling user chat requests. It performs the
 	following steps:
@@ -619,13 +625,14 @@ def generate_chat_response(
 		model (str, optional): The Gemini model to use. Defaults to settings.
 		conversation_id (str, optional): The ID of the conversation to continue.
 		selected_options (dict, optional): Not currently used.
-		generation_config (dict, optional): Configuration for the generation process.
+		config (dict, optional): Configuration for the generation process.
 
 	Returns:
 		dict: A dictionary containing the response text and conversation ID.
 	"""
 	# --- 1. Initial Setup and Configuration ---
-	if not configure_gemini():
+	client = configure_gemini()
+	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
 	# --- 2. Load Conversation History ---
@@ -634,25 +641,15 @@ def generate_chat_response(
 		try:
 			conv_doc = frappe.get_doc("Gemini Conversation", conversation_id)
 			if conv_doc.conversation:
-				# Transform stored history to the format required by the genai library
 				stored_history = json.loads(conv_doc.conversation)
 				for item in stored_history:
 					role = "user" if item["role"] == "user" else "model"
-					# Skip tool_context items for now, as they are for grounding, not direct history
 					if item["role"] != "tool_context":
 						conversation_history.append({"role": role, "parts": [item["text"]]})
-		except frappe.DoesNotExistError:
-			# If the conversation ID is invalid, start a new conversation
-			conversation_id = None
-		except json.JSONDecodeError:
-			frappe.log_error(
-				f"Could not parse conversation history for ID {conversation_id}", "Gemini Integration"
-			)
-			# Start a new conversation if history is corrupted
-			conversation_id = None
+		except (frappe.DoesNotExistError, json.JSONDecodeError):
+			conversation_id = None  # Start new if history is invalid
 
 	# --- 3. URL and Document Context Injection ---
-	# This enriches the prompt with context from external sources before sending it to the model.
 	urls = extract_urls(prompt)
 	if urls:
 		url_context = get_url_context(urls)
@@ -662,111 +659,66 @@ def generate_chat_response(
 	gemini_settings = frappe.get_single("Gemini Settings")
 	model_name = model or gemini_settings.default_model or "gemini-1.5-pro"
 	all_tools = _sanitize_tools(mcp)
-
-	# Add Google Search as a tool if it's enabled in settings
 	if gemini_settings.enable_google_search:
-		# The new way to enable Google Search grounding
-		all_tools.append({"google_search": {}})
+		all_tools.append(types.Tool(google_search=types.GoogleSearch()))
 
-	# Prepare model arguments
-	model_args = {"model_name": model_name}
-	if all_tools:
-		model_args["tools"] = all_tools
-		# tool_config is only valid if tools are provided
-		model_args["tool_config"] = {"function_calling_config": "AUTO"}
-
-	# --- 5. System Instruction Setup ---
+	# --- 5. System Instruction & Config Setup ---
 	system_instruction = gemini_settings.system_instruction or (
-		"You are a helpful assistant integrated into ERPNext. "
-		"Base your answers *only* on the results from the tools provided. "
-		"If the tools do not provide the information, explicitly state that the information was not found. "
-		"Do not invent or hallucinate data."
+		"You are a helpful assistant integrated into ERPNext..."
 	)
-	model_args["system_instruction"] = system_instruction
+	generation_config = config or {}
+	generation_config.update(
+		{
+			"tools": all_tools,
+			"system_instruction": system_instruction,
+		}
+	)
 
-	# --- 6. Initialize Model and Chat ---
-	# The model must be re-initialized if the system prompt or tools change.
-	model_instance = genai.GenerativeModel(**model_args)
-	chat = model_instance.start_chat(history=conversation_history)
+	# --- 6. Initialize Chat ---
+	# The new SDK creates a chat session from the client.
+	chat = client.chats.create(model=model_name, history=conversation_history)
 	final_response_text = ""
 	max_tool_calls = 10
-	tool_call_count = 0
+	current_prompt = prompt
 
 	# --- 7. Main Tool-Calling Loop ---
-	while tool_call_count < max_tool_calls:
-		# Send the prompt to the model
-		response = chat.send_message(prompt)
-		has_function_call = False
+	for _ in range(max_tool_calls):
+		response = chat.send_message(message=current_prompt, config=generation_config)
+		function_call = response.candidates[0].content.parts[0].function_call
 
-		# Check parts for a function call
-		for part in response.candidates[0].content.parts:
-			if part.function_call:
-				has_function_call = True
-				function_call = part.function_call
-				tool = mcp._tool_registry.get(function_call.name)
-
-				# Debug log: Log the raw function call received from the model
-				frappe.log_error(
-					message=f"Gemini Function Call: {function_call.name} with args {function_call.args}",
-					title="Gemini Debug",
-				)
-
-				if not tool:
-					# If the model hallucinates a tool that doesn't exist
-					result_content = f"Error: Tool '{function_call.name}' not found."
-				else:
-					try:
-						# Execute the actual tool function
-						result = tool["fn"](**function_call.args)
-						result_content = result
-					except Exception:
-						# Catch errors during tool execution
-						result_content = "Error: An exception occurred while executing the tool."
-						frappe.log_error(
-							message=frappe.get_traceback(),
-							title=f"Gemini Tool Execution Error: {function_call.name}",
-						)
-
-				# Prepare the response to send back to the model
-				function_response = {
-					"function_response": {
-						"name": function_call.name,
-						"response": {"content": result_content},
-					}
-				}
-
-				# Debug log: Log the full function response payload
-				frappe.log_error(
-					message=f"Gemini Function Response: {json.dumps(function_response, indent=2)}",
-					title="Gemini Debug",
-				)
-
-				# Send the tool's result back to the model for the next turn
-				# Note: The SDK expects a plain list, not a genai.Content object here.
-				prompt = [function_response]
-				break  # Exit the inner loop once a function call is handled
-
-		# If no function call was found in the parts, the loop can terminate.
-		if not has_function_call:
+		if not function_call:
 			try:
-				# Safely access the response text
 				final_response_text = response.text
 			except ValueError:
-				# This can happen if the response is blocked or has no text part.
-				final_response_text = "The model did not provide a text response. This could be due to the prompt, safety settings, or a tool call."
-				frappe.log_error(
-					message="ValueError accessing response.text. The response may have been blocked or empty.",
-					title="Gemini Response Error",
-				)
+				final_response_text = "Model did not provide a text response."
+				frappe.log_error("ValueError accessing response.text", "Gemini Response Error")
 			break
 
-		tool_call_count += 1
+		tool = mcp._tool_registry.get(function_call.name)
+		frappe.log_error(
+			f"Gemini Function Call: {function_call.name} with args {function_call.args}", "Gemini Debug"
+		)
 
-	if tool_call_count >= max_tool_calls:
-		final_response_text = "The request exceeded the maximum number of tool calls. Please try again with a more specific prompt."
+		if not tool:
+			result_content = f"Error: Tool '{function_call.name}' not found."
+		else:
+			try:
+				result_content = tool["fn"](**function_call.args)
+			except Exception:
+				result_content = "Error: Exception during tool execution."
+				frappe.log_error(
+					frappe.get_traceback(), f"Gemini Tool Execution Error: {function_call.name}"
+				)
+
+		function_response = types.Content(
+			parts=[types.Part(function_response={"name": function_call.name, "response": {"content": result_content}})]
+		)
+		frappe.log_error(f"Gemini Function Response: {function_response}", "Gemini Debug")
+		current_prompt = function_response
+	else:
+		final_response_text = "Exceeded maximum tool calls."
 
 	# --- 8. Save and Return Final Response ---
-	# Load the latest conversation history before saving
 	full_history = []
 	if conversation_id:
 		try:
@@ -774,20 +726,17 @@ def generate_chat_response(
 			if conv_doc.conversation:
 				full_history = json.loads(conv_doc.conversation)
 		except (frappe.DoesNotExistError, json.JSONDecodeError):
-			pass  # Start fresh if history is missing or corrupt
+			pass
 
-	# Append the new user prompt and the final model response
-	full_history.append({"role": "user", "text": prompt if isinstance(prompt, str) else "Tool output"})
+	full_history.append({"role": "user", "text": prompt})
 	full_history.append({"role": "gemini", "text": final_response_text})
 
-	new_conversation_id = save_conversation(
-		conversation_id, prompt if isinstance(prompt, str) else "Chat", full_history
-	)
+	new_conversation_id = save_conversation(conversation_id, prompt, full_history)
 
 	return {
 		"response": final_response_text,
 		"conversation_id": new_conversation_id,
-		"clarification_needed": False,  # This can be enhanced in the future
+		"clarification_needed": False,
 	}
 
 
