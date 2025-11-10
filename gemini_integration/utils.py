@@ -254,34 +254,33 @@ def process_google_callback(code, state, error):
 	)
 
 
-def configure_gemini():
-	"""Configures the Google Generative AI client.
+def get_gemini_client():
+	"""Creates and returns an authenticated Gemini client.
 
 	Returns:
-	    bool: True if configuration was successful, False otherwise.
+	    google.genai.Client: An initialized Gemini client, or None on failure.
 	"""
 	settings = frappe.get_single("Gemini Settings")
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
-		return False
+		return None
 	try:
-		genai.configure(api_key=api_key)
-		return True
+		return genai.Client(api_key=api_key)
 	except Exception as e:
-		frappe.log_error(f"Failed to configure Gemini client: {e!s}", "Gemini Integration")
-		return False
+		frappe.log_error(f"Failed to create Gemini client: {e!s}", "Gemini Integration")
+		return None
 
 
 def generate_embedding(text):
 	"""
 	Generates an embedding for a given text using the Gemini API.
 	"""
-	if not configure_gemini():
-		# Error is already logged in configure_gemini
+	client = get_gemini_client()
+	if not client:
 		return None
 	try:
-		result = genai.embed_content(
+		result = client.embed_content(
 			model="gemini-2.5-pro",
 			content=text,
 			task_type="RETRIEVAL_DOCUMENT",
@@ -310,14 +309,15 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 	Returns:
 	    str: The generated text from the model.
 	"""
-	if not configure_gemini():
+	client = get_gemini_client()
+	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
 	if not model_name:
 		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	try:
-		model = genai.GenerativeModel(model_name)
+		model = client.get_model(model_name)
 		contents = [prompt]
 		if uploaded_files:
 			contents.extend(uploaded_files)
