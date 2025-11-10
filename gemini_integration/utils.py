@@ -255,35 +255,35 @@ def process_google_callback(code, state, error):
 
 
 def configure_gemini():
-	"""Configures and returns a Google Generative AI client.
+	"""Configures the Google Generative AI client.
 
 	Returns:
-	    genai.Client or None: A configured client instance if the API key is found, otherwise None.
+	    bool: True if configuration was successful, False otherwise.
 	"""
 	settings = frappe.get_single("Gemini Settings")
 	api_key = settings.get_password("api_key")
 	if not api_key:
 		frappe.log_error("Gemini API Key not found in Gemini Settings.", "Gemini Integration")
-		return None
+		return False
 	try:
-		return genai.Client(api_key=api_key)
+		genai.configure(api_key=api_key)
+		return True
 	except Exception as e:
-		frappe.log_error(f"Failed to create Gemini client: {e!s}", "Gemini Integration")
-		return None
+		frappe.log_error(f"Failed to configure Gemini client: {e!s}", "Gemini Integration")
+		return False
 
 
 def generate_embedding(text):
 	"""
 	Generates an embedding for a given text using the Gemini API.
 	"""
-	client = configure_gemini()
-	if not client:
+	if not configure_gemini():
 		# Error is already logged in configure_gemini
 		return None
 	try:
-		result = client.models.embed_content(
+		result = genai.embed_content(
 			model="gemini-2.5-pro",
-			contents=text,
+			content=text,
 			task_type="RETRIEVAL_DOCUMENT",
 			title="ERPNext Document",
 		)
@@ -310,24 +310,19 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 	Returns:
 	    str: The generated text from the model.
 	"""
-	client = configure_gemini()
-	if not client:
+	if not configure_gemini():
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
 	if not model_name:
 		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	try:
+		model = genai.GenerativeModel(model_name)
+		contents = [prompt]
 		if uploaded_files:
-			response = client.models.generate_content(
-				model=model_name,
-				contents=[prompt, *uploaded_files],
-			)
-		else:
-			response = client.models.generate_content(
-				model=model_name,
-				contents=prompt,
-			)
+			contents.extend(uploaded_files)
+
+		response = model.generate_content(contents)
 		try:
 			return response.text
 		except ValueError:
