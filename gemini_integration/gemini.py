@@ -585,6 +585,10 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	compiled_context = []
 	tool_calls = planner_response.candidates[0].content.parts
 	for tool_call in tool_calls:
+		# A part might not be a function call, so we need to check
+		if not hasattr(tool_call, "function_call"):
+			continue
+
 		tool_name = tool_call.function_call.name
 		tool_args = dict(tool_call.function_call.args)
 
@@ -648,7 +652,11 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		return
 
 	# Handle non-streaming case
-	final_response_text = _linkify_erpnext_docs(final_response.text)
+	try:
+		final_response_text = _linkify_erpnext_docs(final_response.text)
+	except (AttributeError, ValueError):
+		# Handle cases where the response might not have a .text attribute (e.g., error, safety)
+		final_response_text = "I am unable to provide a response at this time."
 	conversation_history.append({"role": "user", "text": prompt})
 	conversation_history.append({"role": "gemini", "text": final_response_text})
 	save_conversation(conversation_id, prompt, conversation_history, user=user)
