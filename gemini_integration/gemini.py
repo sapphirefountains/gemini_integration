@@ -28,7 +28,7 @@ from gemini_integration.tools import (
 	search_google_contacts,
 	update_document_status,
 )
-from gemini_integration.utils import configure_gemini, generate_embedding, generate_text
+from gemini_integration.utils import get_gemini_client, generate_embedding, generate_text
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
 
@@ -44,9 +44,11 @@ def generate_image(prompt):
 	Returns:
 	    str: The public URL of the generated image file, or None on failure.
 	"""
-	configure_gemini()
+	client = get_gemini_client()
+	if not client:
+		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 	try:
-		model = genai.GenerativeModel("gemini-2.5-flash-image")
+		model = client.get_model("gemini-2.5-flash-image")
 		response = model.generate_content(
 			contents=prompt,
 			generation_config=genai.types.GenerateContentConfig(
@@ -121,10 +123,12 @@ def upload_file_to_gemini(file_name, file_content):
 	Returns:
 	    google.genai.files.File: The uploaded file object, or None on failure.
 	"""
-	configure_gemini()
+	client = get_gemini_client()
+	if not client:
+		return None
 	try:
 		# Upload the file to the Gemini API
-		uploaded_file = genai.upload_file(display_name=file_name, content=file_content)
+		uploaded_file = client.upload_file(display_name=file_name, content=file_content)
 		return uploaded_file
 	except Exception as e:
 		frappe.log_error(f"Gemini File API Error: {e!s}", "Gemini Integration")
@@ -454,7 +458,10 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 1a. Planning Phase (Non-Streaming) ---
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
-	configure_gemini()
+	client = get_gemini_client()
+	if not client:
+		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
+
 	# The `generate_content` method expects the system instruction to be the first element
 	# in the `contents` list, not a separate keyword argument.
 	model_contents = [
@@ -473,13 +480,12 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
 	# Refactored to use the GenerativeModel class, which correctly handles tools.
-	model = genai.GenerativeModel(
-		model_name=model_name,
-		system_instruction=planner_config_args.get("system_instruction"),
+	model = client.get_model(model_name)
+	planner_response = model.generate_content(
+		model_contents,
 		tools=planner_config_args.get("tools"),
 		tool_config=planner_config_args.get("tool_config"),
 	)
-	planner_response = model.generate_content(prompt)
 
 	# --- 1b. Process Planner Response ---
 	planner_response_text = ""
