@@ -466,12 +466,15 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
 	client = genai.Client(api_key=api_key)
 
-	# The `generate_content` method expects configuration parameters to be passed directly,
-	# not nested under a 'config' object. We construct the arguments dictionary accordingly.
+	# The `generate_content` method expects the system instruction to be the first element
+	# in the `contents` list, not a separate keyword argument.
+	model_contents = [
+		planner_config_args.get("system_instruction"),
+		prompt,
+	]
 	generation_args = {
 		"model": model_name,
-		"contents": prompt,
-		"system_instruction": planner_config_args.get("system_instruction"),
+		"contents": model_contents,
 		"tools": planner_config_args.get("tools"),
 		"tool_config": planner_config_args.get("tool_config"),
 	}
