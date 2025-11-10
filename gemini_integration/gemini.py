@@ -28,7 +28,7 @@ from gemini_integration.tools import (
 	search_google_contacts,
 	update_document_status,
 )
-from gemini_integration.utils import generate_embedding, generate_text
+from gemini_integration.utils import configure_gemini, generate_embedding, generate_text
 
 # --- GEMINI API CONFIGURATION AND BASIC GENERATION ---
 
@@ -44,13 +44,8 @@ def generate_image(prompt):
 	Returns:
 	    str: The public URL of the generated image file, or None on failure.
 	"""
-	settings = frappe.get_single("Gemini Settings")
-	api_key = settings.get_password("api_key")
-	if not api_key:
-		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
-
+	configure_gemini()
 	try:
-		genai.configure(api_key=api_key)
 		model = genai.GenerativeModel("gemini-2.5-flash-image")
 		response = model.generate_content(
 			contents=prompt,
@@ -126,15 +121,10 @@ def upload_file_to_gemini(file_name, file_content):
 	Returns:
 	    google.genai.files.File: The uploaded file object, or None on failure.
 	"""
-	settings = frappe.get_single("Gemini Settings")
-	api_key = settings.get_password("api_key")
-	if not api_key:
-		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
-
+	configure_gemini()
 	try:
-		client = genai.Client(api_key=api_key)
 		# Upload the file to the Gemini API
-		uploaded_file = client.files.upload(file=file_content, display_name=file_name)
+		uploaded_file = genai.upload_file(display_name=file_name, content=file_content)
 		return uploaded_file
 	except Exception as e:
 		frappe.log_error(f"Gemini File API Error: {e!s}", "Gemini Integration")
@@ -464,8 +454,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 1a. Planning Phase (Non-Streaming) ---
 	# Use the non-streaming client for the planning phase as tool use is not supported with streaming.
-	client = genai.Client(api_key=api_key)
-
+	configure_gemini()
 	# The `generate_content` method expects the system instruction to be the first element
 	# in the `contents` list, not a separate keyword argument.
 	model_contents = [
@@ -594,9 +583,10 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 3. Execution Phase ---
 	compiled_context = []
-	for step in execution_plan:
-		tool_name = step.get("tool_name")
-		tool_args = step.get("args", {})
+	tool_calls = planner_response.candidates[0].content.parts
+	for tool_call in tool_calls:
+		tool_name = tool_call.function_call.name
+		tool_args = dict(tool_call.function_call.args)
 
 		if not tool_name or not isinstance(tool_args, dict):
 			# Skip malformed steps in the plan
@@ -625,11 +615,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 			tool_function = mcp._tool_registry[tool_name]["fn"]
 			tool_result = tool_function(**tool_args)
 			compiled_context.append(
-				{
-					"tool_name": tool_name,
-					"status": "success",
-					"result": tool_result,
-				}
+				types.Part.from_function_response(name=tool_name, response={"result": tool_result})
 			)
 		except Exception as e:
 			frappe.log_error(
@@ -637,68 +623,13 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 				title="Gemini Execution Phase Error",
 			)
 			compiled_context.append(
-				{
-					"tool_name": tool_name,
-					"status": "error",
-					"result": f"An error occurred while running the tool: {e!s}",
-				}
+				types.Part.from_function_response(
+					name=tool_name,
+					response={"error": f"An error occurred while running the tool: {e!s}"},
+				)
 			)
-
 	# --- 4. Synthesis Phase ---
-	synthesis_instruction = """
-You are a helpful AI assistant integrated into ERPNext. Your goal is to provide a single, comprehensive, and user-friendly answer to the user's original question.
-You will be given the user's prompt and a JSON object containing the results of a series of tool calls that were executed to gather information.
-Synthesize the information from the tool results to answer the user's question.
-If any tools returned an error, acknowledge the failure and inform the user what information you were unable to retrieve.
-Base your answer STRICTLY on the provided tool results. Do not invent or hallucinate information.
-Format your response in clear, readable Markdown.
-"""
-
-	# The Gemini API cannot handle the `decimal` type from MariaDB, so we need a custom JSON encoder.
-	class CustomJSONEncoder(json.JSONEncoder):
-		def default(self, obj):
-			if isinstance(obj, frappe.model.document.Document):
-				return obj.as_dict()
-			if hasattr(obj, "isoformat"):  # Handles dates, datetimes
-				return obj.isoformat()
-			from decimal import Decimal
-
-			if isinstance(obj, Decimal):
-				return float(obj)
-			return super().default(self, obj)
-
-	final_prompt_content = f"""**User's Original Question:**
-"{prompt}"
-
-**Compiled Context from Tool Execution:**
-```json
-{json.dumps(compiled_context, indent=2, cls=CustomJSONEncoder)}
-```
-
-**Your Answer:**
-"""
-
-	synthesis_config = types.GenerateContentConfig(
-		system_instruction=synthesis_instruction,
-	)
-	if show_thinking:
-		synthesis_config.thinking_config = types.ThinkingConfig(include_thoughts=True)
-
-	# --- 5. Stream or Return Final Response ---
-	model = genai.GenerativeModel(
-		model_name=model_name,
-		system_instruction=synthesis_instruction,
-	)
-	generation_config = types.GenerateContentConfig()
-	if show_thinking:
-		generation_config.thinking_config = types.ThinkingConfig(include_thoughts=True)
-
-	final_response = model.generate_content(
-		contents=final_prompt_content,
-		stream=stream,
-		generation_config=generation_config,
-	)
-
+	final_response = model.generate_content(compiled_context, stream=stream)
 	if stream:
 		final_response_text = ""
 		for chunk in final_response:
