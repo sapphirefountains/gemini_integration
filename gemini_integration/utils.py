@@ -319,7 +319,7 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-2.5-pro"
 
 	try:
-		model = genai.GenerativeModel(model_name)
+		model = client.get_model(model_name)
 		contents = [prompt]
 		if uploaded_files:
 			contents.extend(uploaded_files)
