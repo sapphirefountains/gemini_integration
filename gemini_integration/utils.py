@@ -3,6 +3,7 @@ import traceback
 
 import frappe
 import google.genai as genai
+from google.genai.types import EmbedContentConfig
 from frappe.utils import get_site_url
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -283,7 +284,7 @@ def generate_embedding(text):
 		result = client.models.embed_content(
 			model="models/embedding-001",
 			contents=text,
-			task_type="RETRIEVAL_DOCUMENT",
+			config=EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
 		)
 		return result["embedding"]
 	except Exception as e:
