@@ -48,7 +48,7 @@ def generate_image(prompt):
 	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 	try:
-		model = genai.GenerativeModel("gemini-2.5-flash-image")
+		model = client.get_model("gemini-2.5-flash-image")
 		response = model.generate_content(
 			contents=prompt,
 			generation_config=genai.types.GenerateContentConfig(
@@ -480,7 +480,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
 	# Refactored to use the GenerativeModel class, which correctly handles tools.
-	model = genai.GenerativeModel(model_name)
+	model = client.get_model(model_name)
 	planner_response = model.generate_content(
 		model_contents,
 		tools=planner_config_args.get("tools"),
@@ -557,7 +557,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		if stream:
 			# This prompt is designed to make the model simply repeat the text.
 			streaming_prompt = f"Please present the following text to the user. Do not add any extra commentary, just provide the text as is:\n\n---\n\n{final_response_text}"
-			model = genai.GenerativeModel(model_name)
+			model = client.get_model(model_name)
 			direct_stream = model.generate_content(
 				contents=streaming_prompt,
 				stream=True,
