@@ -286,7 +286,9 @@ def generate_embedding(text):
 			contents=text,
 			config=EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
 		)
-		return result["embedding"]
+		if result.embeddings:
+			return result.embeddings[0].values
+		return None
 	except Exception as e:
 		frappe.log_error(
 			message=f"Failed to generate embedding: {e!s}\n{frappe.get_traceback()}",
