@@ -48,7 +48,7 @@ def generate_image(prompt):
 	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 	try:
-		model = client.get_model("gemini-2.5-flash-image")
+		model = genai.GenerativeModel("gemini-2.5-flash-image")
 		response = model.generate_content(
 			contents=prompt,
 			generation_config=genai.types.GenerateContentConfig(
@@ -480,7 +480,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
 	# Refactored to use the GenerativeModel class, which correctly handles tools.
-	model = client.get_model(model_name)
+	model = genai.GenerativeModel(model_name)
 	planner_response = model.generate_content(
 		model_contents,
 		tools=planner_config_args.get("tools"),
