@@ -3,6 +3,8 @@ import traceback
 
 import frappe
 import google.genai as genai
+from google.genai.errors import ServerError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from google.genai.types import EmbedContentConfig
 from frappe.utils import get_site_url
 from google.oauth2.credentials import Credentials
@@ -273,6 +275,11 @@ def get_gemini_client():
 		return None
 
 
+@retry(
+	wait=wait_exponential(multiplier=1, min=2, max=60),
+	stop=stop_after_attempt(3),
+	retry=retry_if_exception_type(ServerError),
+)
 def generate_embedding(text):
 	"""
 	Generates an embedding for a given text using the Gemini API.
