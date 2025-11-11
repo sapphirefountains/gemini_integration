@@ -280,11 +280,10 @@ def generate_embedding(text):
 	if not client:
 		return None
 	try:
-		result = client.embed_content(
-			model="gemini-2.5-pro",
-			content=text,
+		result = client.models.embed_content(
+			model="models/embedding-001",
+			contents=text,
 			task_type="RETRIEVAL_DOCUMENT",
-			title="ERPNext Document",
 		)
 		return result["embedding"]
 	except Exception as e:
