@@ -43,13 +43,70 @@ frappe.pages["gemini-file-management"].on_page_load = function (wrapper) {
 	});
 
 	draw_gemini_embedding_list(page);
+	draw_gemini_file_embedding_list(page);
 };
+
+function draw_gemini_file_embedding_list(page) {
+	// Add a container for the list
+	let list_container = $(`
+		<div class="gemini-embedding-list frappe-card" style="margin-top: 15px;">
+			<div class="frappe-card-head">File Embeddings</div>
+			<div class="frappe-card-body">
+				<div class="list-group"></div>
+			</div>
+		</div>
+	`).appendTo(page.main);
+
+	// Fetch the Gemini File Store documents
+	frappe.call({
+		method: "frappe.client.get_list",
+		args: {
+			doctype: "Gemini File Store",
+			fields: ["name", "file_url", "status"],
+			order_by: "modified desc",
+			limit_page_length: 100,
+		},
+		callback: function (r) {
+			if (r.message && r.message.length) {
+				// Render the list
+				r.message.forEach(function (item) {
+					let list_item = $(`
+						<div class="list-group-item">
+							<div class="row">
+								<div class="col-sm-6">
+									<a href="/app/gemini-file-store/${item.name}">${item.name}</a>
+								</div>
+								<div class="col-sm-4">${item.file_url}</div>
+								<div class="col-sm-2">
+									<span class="indicator whitespace-nowrap ${
+										item.status === "Completed"
+											? "green"
+											: item.status === "Pending"
+											? "orange"
+											: "red"
+									}">${item.status}</span>
+								</div>
+							</div>
+						</div>
+					`).appendTo(list_container.find(".list-group"));
+				});
+			} else {
+				// Show a message if there are no embeddings
+				list_container
+					.find(".list-group")
+					.append(
+						`<div class="list-group-item text-muted">No file embeddings found.</div>`
+					);
+			}
+		},
+	});
+}
 
 function draw_gemini_embedding_list(page) {
 	// Add a container for the list
 	let list_container = $(`
 		<div class="gemini-embedding-list frappe-card" style="margin-top: 15px;">
-			<div class="frappe-card-head">File Embeddings</div>
+			<div class="frappe-card-head">DocType Embeddings</div>
 			<div class="frappe-card-body">
 				<div class="list-group"></div>
 			</div>
@@ -94,7 +151,7 @@ function draw_gemini_embedding_list(page) {
 				list_container
 					.find(".list-group")
 					.append(
-						`<div class="list-group-item text-muted">No file embeddings found.</div>`
+						`<div class="list-group-item text-muted">No DocType embeddings found.</div>`
 					);
 			}
 		},

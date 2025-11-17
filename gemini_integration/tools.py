@@ -1594,3 +1594,89 @@ def project_health_check(project_name: str) -> str:
 
 
 project_health_check.service = "erpnext"
+
+
+def find_similar_files(query_embedding, limit=5):
+	"""Finds similar files using vector similarity search on file embeddings."""
+	all_embeddings = frappe.get_all(
+		"Gemini File Store",
+		fields=["file_url", "embedding", "content"],
+		filters={"status": "Completed"},
+	)
+
+	if not all_embeddings:
+		return []
+
+	# Calculate scores for all files
+	matching_files = []
+	for emb_info in all_embeddings:
+		# Skip if embedding is missing or invalid
+		if not emb_info.get("embedding") or not isinstance(emb_info["embedding"], str):
+			continue
+		try:
+			stored_embedding = np.array(json.loads(emb_info["embedding"]))
+		except (json.JSONDecodeError, TypeError):
+			continue
+
+		score = cosine_similarity(query_embedding, stored_embedding)
+		if score > 0.75:  # Similarity threshold
+			matching_files.append(
+				{
+					"file_url": emb_info["file_url"],
+					"score": score,
+					"content": emb_info.get("content", ""),
+				}
+			)
+
+	return sorted(matching_files, key=lambda x: x["score"], reverse=True)[:limit]
+
+
+@mcp.tool()
+@log_activity
+@handle_errors
+def search_files(query: str, limit: int = 5) -> dict:
+	"""Searches for files based on their content using semantic search.
+
+	Args:
+	    query (str): The search query.
+	    limit (int, optional): The maximum number of files to return. Defaults to 5.
+
+	Returns:
+	    dict: A dictionary containing the search results.
+	"""
+	try:
+		limit = int(limit)
+
+		query_embedding = generate_embedding(query)
+		if not query_embedding:
+			return {"type": "error", "string_representation": "Could not generate an embedding for the query."}
+
+		similar_files = find_similar_files(np.array(query_embedding), limit)
+
+		if not similar_files:
+			return {"type": "no_match", "string_representation": "No matching files found."}
+
+		results_string = "I found the following files that might be relevant:\n"
+		for file_info in similar_files:
+			results_string += f"- <a href='{file_info['file_url']}' target='_blank'>{file_info['file_url']}</a> (Score: {file_info['score']:.2f})\n"
+			if file_info.get("content"):
+				results_string += f"  - Matching Content: \"...{file_info['content'][:150]}...\"\n"
+
+		return {
+			"type": "disambiguation",
+			"files": similar_files,
+			"string_representation": results_string,
+		}
+
+	except Exception:
+		frappe.log_error(
+			message=f"Error in search_files: {frappe.get_traceback()}",
+			title="Gemini Search Error",
+		)
+		error_string = (
+			"An error occurred while searching for files. Please check the Error Log for details."
+		)
+		return {"type": "error", "string_representation": error_string}
+
+
+search_files.service = "erpnext"
