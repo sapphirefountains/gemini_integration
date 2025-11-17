@@ -3,6 +3,7 @@ import frappe
 from gemini_integration.gemini import (
 	analyze_risks,
 	backfill_embeddings,
+	bulk_embed_files_in_background,
 	generate_chat_response,
 	generate_tasks,
 	generate_text,
@@ -266,6 +267,17 @@ def enqueue_backfill_embeddings():
 		timeout=1500,
 	)
 	return {"status": "success", "message": "Embedding backfill process has been started."}
+
+
+@frappe.whitelist()
+def start_bulk_file_upload():
+	"""Enqueues the bulk_embed_files_in_background function to run as a background job."""
+	frappe.enqueue(
+		"gemini_integration.gemini.bulk_embed_files_in_background",
+		queue="long",
+		timeout=1500,
+	)
+	return {"status": "success", "message": "Bulk file embedding process has been started."}
 
 
 @frappe.whitelist()

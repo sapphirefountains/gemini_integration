@@ -24,6 +24,7 @@ from gemini_integration.tools import (
 	search_calendar,
 	search_drive,
 	search_erpnext_documents,
+	search_files,
 	search_gmail,
 	search_google_contacts,
 	update_document_status,
@@ -291,6 +292,7 @@ SERVICE_TO_TOOL_MAP = {
 			"create_comment",
 			"create_task",
 			"update_document_status",
+			"search_files",
 		],
 	},
 	"google": {
@@ -1023,4 +1025,151 @@ def backfill_embeddings():
 				"error": "An error occurred during the embedding backfill. Please check the Error Log for details."
 			},
 			user=frappe.session.user,
+		)
+
+
+def bulk_embed_files_in_background():
+	"""
+	Iterates through all text-based files and generates embeddings for them.
+	"""
+	try:
+		# Get all non-private files
+		files = frappe.get_all("File", filters={"is_private": 0}, fields=["name", "file_url"])
+
+		for file_info in files:
+			file_url = file_info.file_url
+			try:
+				# Get the file content
+				file_doc = frappe.get_doc("File", {"file_url": file_url})
+				content = file_doc.get_content()
+
+				# Decode the content to a string
+				try:
+					content_str = content.decode("utf-8")
+				except (UnicodeDecodeError, AttributeError):
+					# Skip non-text files
+					continue
+
+				# Create a new Gemini File Store document
+				embedding_doc = frappe.new_doc("Gemini File Store")
+				embedding_doc.file_url = file_url
+				embedding_doc.content = content_str
+				embedding_doc.status = "Pending"
+				embedding_doc.save(ignore_permissions=True)
+
+				# Enqueue the generation of the embedding
+				frappe.enqueue(
+					"gemini_integration.gemini.generate_file_embedding_in_background",
+					file_store_id=embedding_doc.name,
+				)
+
+			except Exception as e:
+				frappe.log_error(
+					message=f"Failed to process file {file_url}: {e!s}\n{frappe.get_traceback()}",
+					title="Gemini File Embedding Error",
+				)
+
+	except Exception as e:
+		frappe.log_error(
+			message=f"An error occurred during the bulk file embedding process: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini Bulk File Embedding Failed",
+		)
+
+
+def generate_file_embedding_in_background(file_store_id):
+	"""
+	Generates and saves an embedding for a specific file in the background.
+
+	Args:
+		file_store_id (str): The ID of the Gemini File Store document.
+	"""
+	try:
+		file_store_doc = frappe.get_doc("Gemini File Store", file_store_id)
+		content = file_store_doc.content
+
+		# Generate the embedding
+		embedding_vector = generate_embedding(content)
+
+		if embedding_vector:
+			# Update the Gemini File Store document
+			file_store_doc.embedding = json.dumps(embedding_vector)
+			file_store_doc.status = "Completed"
+			file_store_doc.save(ignore_permissions=True)
+		else:
+			# Log an error
+			file_store_doc.status = "Error"
+			file_store_doc.error_message = "Failed to generate embedding."
+			file_store_doc.save(ignore_permissions=True)
+
+	except Exception as e:
+		# Log an error
+		file_store_doc = frappe.get_doc("Gemini File Store", file_store_id)
+		file_store_doc.status = "Error"
+		file_store_doc.error_message = f"An error occurred: {e!s}"
+		file_store_doc.save(ignore_permissions=True)
+		frappe.log_error(
+			message=f"Failed to generate embedding for file store ID {file_store_id}: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini File Embedding Generation Error",
+		)
+
+
+def embed_new_file(doc, method):
+	"""
+	Creates an embedding for a new file. This will be called by the on_update hook for the File doctype.
+	"""
+	try:
+		# Skip if the file is private
+		if doc.is_private:
+			return
+
+		# Check if an embedding for this file already exists
+		if frappe.db.exists("Gemini File Store", {"file_url": doc.file_url}):
+			return
+
+		# Get the file content
+		content = doc.get_content()
+
+		# Decode the content to a string
+		try:
+			content_str = content.decode("utf-8")
+		except (UnicodeDecodeError, AttributeError):
+			# Skip non-text files
+			return
+
+		# Create a new Gemini File Store document
+		embedding_doc = frappe.new_doc("Gemini File Store")
+		embedding_doc.file_url = doc.file_url
+		embedding_doc.content = content_str
+		embedding_doc.status = "Pending"
+		embedding_doc.save(ignore_permissions=True)
+
+		# Enqueue the generation of the embedding
+		frappe.enqueue(
+			"gemini_integration.gemini.generate_file_embedding_in_background",
+			file_store_id=embedding_doc.name,
+		)
+
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to embed new file {doc.name}: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini New File Embedding Error",
+		)
+
+
+def delete_file_embedding(doc, method):
+	"""
+	Deletes the embedding for a file when it is deleted.
+	"""
+	try:
+		embedding_docs = frappe.get_all(
+			"Gemini File Store",
+			filters={"file_url": doc.file_url},
+			pluck="name",
+		)
+		for embedding_name in embedding_docs:
+			frappe.delete_doc("Gemini File Store", embedding_name, ignore_permissions=True)
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to delete file embedding for {doc.name}: {e!s}\n{frappe.get_traceback()}",
+			title="Gemini File Embedding Deletion Error",
 		)

@@ -166,6 +166,11 @@ for doctype in doctypes_to_embed:
 		"on_trash": "gemini_integration.gemini.delete_embeddings_for_doc",
 	}
 
+doc_events["File"] = {
+	"on_update": "gemini_integration.gemini.embed_new_file",
+	"on_trash": "gemini_integration.gemini.delete_file_embedding",
+}
+
 # Scheduled Tasks
 # ---------------
 

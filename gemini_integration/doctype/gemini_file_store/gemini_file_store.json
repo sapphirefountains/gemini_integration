@@ -1,42 +1,57 @@
 {
- "name": "Gemini File Store",
- "engine": "InnoDB",
- "is_submittable": 0,
- "issingle": 0,
- "module": "Gemini Integration",
- "name_case": "",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  }
- ],
- "quick_entry": 1,
- "sort_field": "modified",
- "sort_order": "DESC",
- "track_changes": 1,
- "fields": [
-  {
-   "fieldname": "doctype_name",
-   "fieldtype": "Data",
-   "label": "DocType Name",
-   "reqd": 1,
-   "unique": 1
-  },
-  {
-   "fieldname": "store_id",
-   "fieldtype": "Data",
-   "label": "Store ID",
-   "reqd": 1
-  }
- ]
+    "name": "Gemini File Store",
+    "engine": "InnoDB",
+    "is_submittable": 0,
+    "issingle": 0,
+    "module": "Gemini Integration",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "track_changes": 1,
+    "fields": [
+        {
+            "fieldname": "file_url",
+            "fieldtype": "Data",
+            "label": "File URL",
+            "reqd": 1,
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "embedding",
+            "fieldtype": "Long Text",
+            "label": "Embedding"
+        },
+        {
+            "fieldname": "content",
+            "fieldtype": "Long Text",
+            "label": "Content"
+        },
+        {
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "label": "Status",
+            "options": "Pending\nCompleted\nError",
+            "default": "Pending",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "error_message",
+            "fieldtype": "Text",
+            "label": "Error Message"
+        }
+    ]
 }
