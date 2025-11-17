@@ -1,0 +1,20 @@
+{
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "min_beta": 0,
+ "module": "Gemini Integration",
+ "name": "gemini-file-management",
+ "owner": "Administrator",
+ "page_name": "gemini-file-management",
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ],
+ "script": "gemini_file_management.js",
+ "standard": "Yes",
+ "style": "",
+ "system_page": 0,
+ "title": "Gemini File Management"
+}
