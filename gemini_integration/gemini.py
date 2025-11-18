@@ -367,7 +367,7 @@ def generate_chat_response(
 	from gemini_integration.mcp import mcp
 	from gemini_integration.utils import is_google_integrated
 
-			model_name = model or settings.default_model or "gemini-3-pro-preview"
+	model_name = model or settings.default_model or "gemini-3-pro-preview"
 	# Load conversation history
 	conversation_history = []
 	if conversation_id:
