@@ -481,14 +481,29 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
 	# Refactored to use the client.models.generate_content method, which correctly handles tools.
-	planner_response = client.models.generate_content(
-		model=model_name,
-		contents=model_contents,
-		config=types.GenerateContentConfig(
-			tools=planner_config_args.get("tools"),
-			tool_config=planner_config_args.get("tool_config"),
-		),
-	)
+	from google.genai.errors import ClientError
+	try:
+		planner_response = client.models.generate_content(
+			model=model_name,
+			contents=model_contents,
+			config=types.GenerateContentConfig(
+				tools=planner_config_args.get("tools"),
+				tool_config=planner_config_args.get("tool_config"),
+			),
+		)
+	except ClientError as e:
+		if "unsupported" in str(e).lower() and "tool" in str(e).lower():
+			frappe.log(f"Model {model_name} does not support tools. Falling back to gemini-2.5-pro for planning phase.")
+			planner_response = client.models.generate_content(
+				model="gemini-2.5-pro",
+				contents=model_contents,
+				config=types.GenerateContentConfig(
+					tools=planner_config_args.get("tools"),
+					tool_config=planner_config_args.get("tool_config"),
+				),
+			)
+		else:
+			raise e
 
 	# --- 1b. Process Planner Response ---
 	planner_response_text = ""
