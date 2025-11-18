@@ -449,6 +449,31 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	if doctype and docname:
 		planning_instruction += f"\n\nThe user is currently viewing the document '{docname}' of type '{doctype}'. Prioritize this information when creating the plan."
 
+	tool_config = {"function_calling_config": {"mode": "AUTO"}}
+	if settings.enable_google_maps_grounding:
+		tool_declarations.append(types.Tool(google_maps=types.GoogleMaps(enable_widget=True)))
+		if manual_location:
+			from geopy.geocoders import Nominatim
+
+			geolocator = Nominatim(user_agent="gemini_integration")
+			location = geolocator.geocode(manual_location)
+			if location:
+				latitude = location.latitude
+				longitude = location.longitude
+			else:
+				frappe.publish_realtime(
+					"gemini_chat_update",
+					{"message": f"Could not find a location for '{manual_location}'."},
+					user=user,
+				)
+				frappe.publish_realtime("gemini_chat_update", {"end_of_stream": True}, user=user)
+				return
+
+		if latitude and longitude:
+			tool_config["retrieval_config"] = types.RetrievalConfig(
+				lat_lng=types.LatLng(latitude=latitude, longitude=longitude)
+			)
+
 	planner_config_args = {
 		"tools": tool_declarations,
 		"tool_config": tool_config,
@@ -463,18 +488,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 
-	# The `generate_content` method expects the system instruction to be the first element
-	# in the `contents` list, not a separate keyword argument.
-	model_contents = [
-		planner_config_args.get("system_instruction"),
-		prompt,
-	]
-	generation_args = {
-		"model": model_name,
-		"contents": model_contents,
-		"tools": planner_config_args.get("tools"),
-		"tool_config": planner_config_args.get("tool_config"),
-	}
+	model_contents = [prompt]
 
 	# The 'thinking_config' implies a streaming response, which conflicts with tool usage.
 	# We explicitly do not add it to the planner call to avoid the INVALID_ARGUMENT error.
@@ -488,6 +502,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 			config=types.GenerateContentConfig(
 				tools=planner_config_args.get("tools"),
 				tool_config=planner_config_args.get("tool_config"),
+				system_instruction=planner_config_args.get("system_instruction"),
 			),
 		)
 	except Exception as e:
@@ -499,6 +514,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 				config=types.GenerateContentConfig(
 					tools=planner_config_args.get("tools"),
 					tool_config=planner_config_args.get("tool_config"),
+					system_instruction=planner_config_args.get("system_instruction"),
 				),
 			)
 		else:
