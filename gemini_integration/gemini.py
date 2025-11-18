@@ -49,10 +49,10 @@ def generate_image(prompt):
 	if not client:
 		frappe.throw("Gemini integration is not configured. Please set the API Key in Gemini Settings.")
 	try:
-		model = client.get_model("gemini-2.5-flash-image")
-		response = model.generate_content(
+		response = client.models.generate_content(
+			model="gemini-2.5-flash-image",
 			contents=prompt,
-			generation_config=genai.types.GenerateContentConfig(
+			config=genai.types.GenerateContentConfig(
 				response_modalities=["IMAGE"],
 			),
 		)
@@ -480,12 +480,14 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# We explicitly do not add it to the planner call to avoid the INVALID_ARGUMENT error.
 	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
-	# Refactored to use the GenerativeModel class, which correctly handles tools.
-	model = client.get_model(model_name)
-	planner_response = model.generate_content(
-		model_contents,
-		tools=planner_config_args.get("tools"),
-		tool_config=planner_config_args.get("tool_config"),
+	# Refactored to use the client.models.generate_content method, which correctly handles tools.
+	planner_response = client.models.generate_content(
+		model=model_name,
+		contents=model_contents,
+		config=types.GenerateContentConfig(
+			tools=planner_config_args.get("tools"),
+			tool_config=planner_config_args.get("tool_config"),
+		),
 	)
 
 	# --- 1b. Process Planner Response ---
@@ -558,10 +560,9 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 		if stream:
 			# This prompt is designed to make the model simply repeat the text.
 			streaming_prompt = f"Please present the following text to the user. Do not add any extra commentary, just provide the text as is:\n\n---\n\n{final_response_text}"
-			model = client.get_model(model_name)
-			direct_stream = model.generate_content(
+			direct_stream = client.models.generate_content_stream(
+				model=model_name,
 				contents=streaming_prompt,
-				stream=True,
 			)
 
 			streamed_text_to_save = ""
@@ -640,7 +641,16 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 				)
 			)
 	# --- 4. Synthesis Phase ---
-	final_response = model.generate_content(compiled_context, stream=stream)
+	if stream:
+		final_response = client.models.generate_content_stream(
+			model=model_name,
+			contents=compiled_context,
+		)
+	else:
+		final_response = client.models.generate_content(
+			model=model_name,
+			contents=compiled_context,
+		)
 	if stream:
 		final_response_text = ""
 		for chunk in final_response:

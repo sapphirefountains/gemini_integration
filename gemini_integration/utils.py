@@ -319,12 +319,14 @@ def generate_text(prompt, model_name=None, uploaded_files=None):
 		model_name = frappe.db.get_single_value("Gemini Settings", "default_model") or "gemini-3-pro-preview"
 
 	try:
-		model = client.get_model(model_name)
 		contents = [prompt]
 		if uploaded_files:
 			contents.extend(uploaded_files)
 
-		response = model.generate_content(contents)
+		response = client.models.generate_content(
+			model=model_name,
+			contents=contents
+		)
 		try:
 			return response.text
 		except ValueError:
