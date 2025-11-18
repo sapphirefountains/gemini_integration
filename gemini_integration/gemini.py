@@ -411,7 +411,7 @@ def generate_chat_response(
 		tool_declarations.append(types.Tool(function_declarations=[function_declaration]))
 
 	if settings.enable_google_search and use_google_search:
-		tool_declarations.append({"google_search": {}})
+		tool_declarations.append(types.Tool(google_search=types.GoogleSearch()))
 
 	tool_config = {"function_calling_config": {"mode": "ANY"}}
 	if settings.enable_google_maps_grounding:
@@ -481,7 +481,6 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 	# The 'show_thinking' feature will only apply to the final synthesis call, which is streamed.
 
 	# Refactored to use the client.models.generate_content method, which correctly handles tools.
-	from google.genai.errors import ClientError
 	try:
 		planner_response = client.models.generate_content(
 			model=model_name,
@@ -491,7 +490,7 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 				tool_config=planner_config_args.get("tool_config"),
 			),
 		)
-	except ClientError as e:
+	except Exception as e:
 		if "unsupported" in str(e).lower() and "tool" in str(e).lower():
 			frappe.log(f"Model {model_name} does not support tools. Falling back to gemini-2.5-pro for planning phase.")
 			planner_response = client.models.generate_content(
