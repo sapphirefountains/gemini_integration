@@ -621,20 +621,21 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 
 	# --- 3. Execution Phase ---
 	compiled_context = []
-	tool_calls = planner_response.candidates[0].content.parts
-	for tool_call in tool_calls:
-		# A part might not be a function call, so we need to check
-		if not hasattr(tool_call, "function_call"):
-			continue
 
-		tool_name = tool_call.function_call.name
-		tool_args = dict(tool_call.function_call.args)
+	# Iterate over the execution plan, which is now guaranteed to be a list of dicts
+	# (or None/Empty, in which case the loop won't run)
+	if execution_plan:
+		for step in execution_plan:
+			tool_name = step.get("tool_name")
+			tool_args = step.get("args", {})
 
-		if not tool_name or not isinstance(tool_args, dict):
-			# Skip malformed steps in the plan
-			continue
+			if not tool_name:
+				continue
 
-		# Check for Google authentication if a Google tool is planned
+			if not isinstance(tool_args, dict):
+				tool_args = {}
+
+			# Check for Google authentication if a Google tool is planned
 		if tool_name in [
 			"search_drive",
 			"search_gmail",
