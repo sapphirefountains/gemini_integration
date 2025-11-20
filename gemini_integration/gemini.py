@@ -636,22 +636,22 @@ If no tools are needed for the prompt, respond with a friendly, conversational a
 				tool_args = {}
 
 			# Check for Google authentication if a Google tool is planned
-		if tool_name in [
-			"search_drive",
-			"search_gmail",
-			"search_calendar",
-			"search_google_contacts",
-			"send_email",
-		]:
-			if not is_google_integrated():
-				compiled_context.append(
-					{
-						"tool_name": tool_name,
-						"status": "error",
-						"result": "User has not connected their Google account.",
-					}
-				)
-				continue  # Skip to the next tool in the plan
+			if tool_name in [
+				"search_drive",
+				"search_gmail",
+				"search_calendar",
+				"search_google_contacts",
+				"send_email",
+			]:
+				if not is_google_integrated():
+					compiled_context.append(
+						{
+							"tool_name": tool_name,
+							"status": "error",
+							"result": "User has not connected their Google account.",
+						}
+					)
+					continue  # Skip to the next tool in the plan
 
 		try:
 			# Execute the tool function
