@@ -1,4 +1,5 @@
 {
+    "doctype": "DocType",
     "name": "Gemini File Store",
     "engine": "InnoDB",
     "is_submittable": 0,
