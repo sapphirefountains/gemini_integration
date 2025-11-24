@@ -1,130 +1,130 @@
 {
- "actions": [],
- "allow_rename": 0,
- "creation": "2025-08-30 13:00:00.000000",
- "doctype": "DocType",
- "custom_script": "gemini_settings.js",
- "engine": "InnoDB",
- "field_order": [
-  "api_key",
-  "google_maps_api_key",
-   "enable_google_search",
-   "enable_google_maps_grounding",
-  "show_thinking",
-  "model",
-  "system_instruction",
-  "log_level",
-  "url_blacklist",
-  "contact_confidence_threshold",
-  "embedding_doctypes",
-  "queryable_doctypes",
-  "field_weights"
- ],
- "fields": [
-  {
-   "fieldname": "api_key",
-   "fieldtype": "Data",
-   "label": "API Key",
-   "reqd": 1
-  },
-  {
-   "fieldname": "google_maps_api_key",
-   "fieldtype": "Data",
-   "label": "Google Maps API Key"
-  },
-   {
-    "fieldname": "enable_google_search",
-    "fieldtype": "Check",
-    "label": "Enable Google Search",
-    "description": "When enabled, the model can use Google Search to answer questions about recent events or topics.",
-    "default": "0"
-   },
-   {
-    "fieldname": "enable_google_maps_grounding",
-    "fieldtype": "Check",
-    "label": "Enable Google Maps Grounding",
-    "description": "When enabled, the model can use Google Maps to answer location-based questions.",
-    "default": "0"
-   },
-  {
-   "fieldname": "show_thinking",
-   "fieldtype": "Check",
-   "label": "Show Thinking",
-   "description": "When enabled, the model's thinking process will be displayed in the chat window before the final answer.",
-   "default": "0"
-  },
-  {
-   "fieldname": "default_model",
-   "fieldtype": "Select",
-   "label": "Default Model",
-   "options": "gemini-3-pro-preview\ngemini-2.5-pro\ngemini-2.5-flash\ngemini-2.5-flash-lite",
-   "default": "gemini-3-pro-preview"
-  },
-  {
-   "fieldname": "system_instruction",
-   "fieldtype": "Text",
-   "label": "System Instruction"
-  },
-  {
-   "fieldname": "log_level",
-   "fieldtype": "Select",
-   "label": "Log Level",
-   "options": "Debug\nInfo\nWarning\nError",
-   "default": "Error"
-  },
-  {
-   "fieldname": "url_blacklist",
-   "fieldtype": "Text",
-   "label": "URL Blacklist",
-   "description": "A list of URLs or domains to blacklist, one per line. Any URL containing one of these strings will be blocked."
-  },
-  {
-   "fieldname": "contact_confidence_threshold",
-   "fieldtype": "Float",
-   "label": "Contact Confidence Threshold",
-   "default": "0.95",
-   "description": "The confidence level required to automatically select a contact when searching by name (0.0 to 1.0)."
-  },
-  {
-   "fieldname": "embedding_doctypes",
-   "fieldtype": "Table",
-   "label": "DocTypes for Embedding",
-   "options": "Embedding Doctype",
-   "description": "Select the DocTypes that should be indexed for semantic search."
-  },
-  {
-   "fieldname": "queryable_doctypes",
-   "fieldtype": "Table",
-   "label": "Queryable DocTypes",
-   "options": "Queryable DocType",
-   "description": "Select the DocTypes that the AI is allowed to query using the 'fetch_erpnext_data' tool."
-  },
-  {
-   "fieldname": "field_weights",
-   "fieldtype": "Table",
-   "label": "Embedding Field Weights",
-   "options": "Embedding Field Weight",
-   "description": "Define weights for specific fields to give them more importance in the embedding."
-  }
- ],
- "issingle": 1,
- "links": [],
- "modified": "2025-08-30 13:00:00.000000",
- "modified_by": "Administrator",
- "module": "Gemini Integration",
- "name": "Gemini Settings",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  }
- ],
- "states": []
+    "actions": [],
+    "allow_rename": 0,
+    "creation": "2025-08-30 13:00:00.000000",
+    "doctype": "DocType",
+    "custom_script": "gemini_settings.js",
+    "engine": "InnoDB",
+    "field_order": [
+        "api_key",
+        "google_maps_api_key",
+        "enable_google_search",
+        "enable_google_maps_grounding",
+        "show_thinking",
+        "model",
+        "system_instruction",
+        "log_level",
+        "url_blacklist",
+        "contact_confidence_threshold",
+        "embedding_doctypes",
+        "queryable_doctypes",
+        "field_weights"
+    ],
+    "fields": [
+        {
+            "fieldname": "api_key",
+            "fieldtype": "Data",
+            "label": "API Key",
+            "reqd": 1
+        },
+        {
+            "fieldname": "google_maps_api_key",
+            "fieldtype": "Data",
+            "label": "Google Maps API Key"
+        },
+        {
+            "fieldname": "enable_google_search",
+            "fieldtype": "Check",
+            "label": "Enable Google Search",
+            "description": "When enabled, the model can use Google Search to answer questions about recent events or topics.",
+            "default": "0"
+        },
+        {
+            "fieldname": "enable_google_maps_grounding",
+            "fieldtype": "Check",
+            "label": "Enable Google Maps Grounding",
+            "description": "When enabled, the model can use Google Maps to answer location-based questions.",
+            "default": "0"
+        },
+        {
+            "fieldname": "show_thinking",
+            "fieldtype": "Check",
+            "label": "Show Thinking",
+            "description": "When enabled, the model's thinking process will be displayed in the chat window before the final answer.",
+            "default": "0"
+        },
+        {
+            "fieldname": "default_model",
+            "fieldtype": "Select",
+            "label": "Default Model",
+            "options": "gemini-3-pro-preview\ngemini-2.5-pro\ngemini-2.5-flash\ngemini-2.5-flash-lite",
+            "default": "gemini-3-pro-preview"
+        },
+        {
+            "fieldname": "system_instruction",
+            "fieldtype": "Text",
+            "label": "System Instruction"
+        },
+        {
+            "fieldname": "log_level",
+            "fieldtype": "Select",
+            "label": "Log Level",
+            "options": "Debug\nInfo\nWarning\nError",
+            "default": "Error"
+        },
+        {
+            "fieldname": "url_blacklist",
+            "fieldtype": "Text",
+            "label": "URL Blacklist",
+            "description": "A list of URLs or domains to blacklist, one per line. Any URL containing one of these strings will be blocked."
+        },
+        {
+            "fieldname": "contact_confidence_threshold",
+            "fieldtype": "Float",
+            "label": "Contact Confidence Threshold",
+            "default": "0.95",
+            "description": "The confidence level required to automatically select a contact when searching by name (0.0 to 1.0)."
+        },
+        {
+            "fieldname": "embedding_doctypes",
+            "fieldtype": "Table",
+            "label": "DocTypes for Embedding",
+            "options": "Embedding Doctype",
+            "description": "Select the DocTypes that should be indexed for semantic search."
+        },
+        {
+            "fieldname": "queryable_doctypes",
+            "fieldtype": "Table",
+            "label": "Queryable DocTypes",
+            "options": "Queryable DocType",
+            "description": "Select the DocTypes that the AI is allowed to query using the 'fetch_erpnext_data' tool."
+        },
+        {
+            "fieldname": "field_weights",
+            "fieldtype": "Table",
+            "label": "Embedding Field Weights",
+            "options": "Embedding Field Weight",
+            "description": "Define weights for specific fields to give them more importance in the embedding."
+        }
+    ],
+    "issingle": 1,
+    "links": [],
+    "modified": "2025-08-30 13:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Gemini Integration",
+    "name": "Gemini Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "states": []
 }
